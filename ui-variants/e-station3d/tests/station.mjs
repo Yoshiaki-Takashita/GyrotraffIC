@@ -227,6 +227,41 @@ for (const theme of ["dark", "light"]) {
   await done(C, k);
 }
 
+// 4b 床は水平・斜めは上下の移動だけ・階の名前は重ならない・正面／斜め／真上の画像
+{
+  const k = await ctx({ reducedMotion: "reduce" }), p = k.p, C = "floors";
+  await p.goto(url + "#/station");
+  await p.waitForSelector("#stc");
+  await p.waitForTimeout(300);
+  const r = await p.evaluate(() => {
+    const v = GT.station.view, S = v._segs(), H = Object.values(v._levelHeights());
+    const bad = [], floorBad = [];
+    for (const s of S) {
+      const dy = Math.abs(s.a[1] - s.b[1]), dh = Math.hypot(s.a[0] - s.b[0], s.a[2] - s.b[2]);
+      if (dy > 1e-6 && dh > 1e-6 && s.tag !== "stairs" && s.tag !== "escalator") bad.push(s);
+      if (s.tag === "floor" && (dy > 1e-9 || !H.some((h) => Math.abs(s.a[1] - h) < 1e-9))) floorBad.push(s);
+    }
+    return { n: S.length, floors: S.filter((s) => s.tag === "floor").length, slopes: S.filter((s) => Math.abs(s.a[1] - s.b[1]) > 1e-6 && Math.hypot(s.a[0] - s.b[0], s.a[2] - s.b[2]) > 1e-6).length, bad: bad.slice(0, 3), floorBad: floorBad.slice(0, 3) };
+  });
+  ok(r.floors > 20, C, "床の線が少ない " + r.floors);
+  ok(r.floorBad.length === 0, C, "床の頂点の高さが階の高さと違う・床が傾いている " + JSON.stringify(r.floorBad));
+  ok(r.bad.length === 0, C, "階段・エスカレーター以外に斜めの線がある " + JSON.stringify(r.bad));
+  ok(r.slopes > 0, C, "エスカレーターの斜めの線がない");
+  const views = [["front", 0, 12], ["oblique", null, null], ["top", 0, 90]];
+  for (const [name, yaw, pitch] of views) {
+    if (yaw === null) await p.click("#stReset"); else await p.evaluate(([y, pt]) => GT.station.view._setCam(y, pt * Math.PI / 180), [yaw, pitch]);
+    await p.waitForTimeout(200);
+    const L = await p.evaluate(() => GT.station.view._labels());
+    for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+      const a = L[i].box, b = L[j].box;
+      ok(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1], C, `${name}：階の名前が重なる ${L[i].t} / ${L[j].t}`);
+    }
+    ok(L.length === 3, C, `${name}：階の名前が 3 つない`);
+    await p.screenshot({ path: join(out, `station-view-${name}.png`) });
+  }
+  await done(C, k);
+}
+
 // 5 短い動画（駅の立体図：経路が伸びる→回す→おすすめのドア→段差なし）
 if (video) {
   const c = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, colorScheme: "dark", recordVideo: { dir: vids, size: { width: 390, height: 844 } } });

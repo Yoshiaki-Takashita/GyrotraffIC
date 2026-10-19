@@ -25,7 +25,7 @@
     var zMid = (Math.max.apply(null, zs) + Math.min.apply(null, zs)) / 2;
     var R = Math.hypot(maxX - minX, maxY - minY) / 2;
 
-    var HOME = { yaw: -62 * DEG, pitch: 40 * DEG, zoom: 1, tx: 0, tz: 0 };
+    var HOME = { yaw: -28 * DEG, pitch: 38 * DEG, zoom: 1, tx: 0, tz: 0 };
     var cam = { yaw: HOME.yaw, pitch: HOME.pitch, zoom: 1, tx: 0, tz: 0 };
     var SPREAD = [2.6, 5];   // 高さの誇張（階の間が薄く見えないように）。「階の間隔を広げる」で 5 倍
     var spread = SPREAD[0], spreadTo = SPREAD[0];
@@ -38,29 +38,48 @@
     // ── 世界の座標（x 東・y 北・z 上、単位 m）→ 描画の座標（X 右・Y 上・Z 手前）
     function zOf(level, dz) { return (L[level].z - zMid) * spread + (dz || 0); }
     function P(x, y, level, dz) { return [x - cx, zOf(level, dz), y - cy]; }
+    function slabOf(lv) {
+      var b = null, m = 4;
+      st.areas.forEach(function (a) {
+        if (a.level !== lv) return;
+        var r = a.rect;
+        b = b ? [Math.min(b[0], r[0] - m), Math.min(b[1], r[1] - m), Math.max(b[2], r[2] + m), Math.max(b[3], r[3] + m)] : [r[0] - m, r[1] - m, r[2] + m, r[3] + m];
+      });
+      return b;
+    }
 
     // ── 線分を作る（形は spread で変わるので、毎回作る。数百本なので軽い）
     function build() {
-      var S = [];   // [a, b, 強さ, 色]
-      function seg(a, b, k, col) { S.push([a, b, k, col || WHITE]); }
+      var S = [];   // [a, b, 強さ, 色, 種類]  種類：floor（床・水平）/ post（鉛直）/ stairs・escalator（斜め）/ mark
+      var tag = "floor";
+      function seg(a, b, k, col) { S.push([a, b, k, col || WHITE, tag]); }
       function rect(x0, y0, x1, y1, lv, dz, k) {
         var a = P(x0, y0, lv, dz), b = P(x1, y0, lv, dz), c = P(x1, y1, lv, dz), d = P(x0, y1, lv, dz);
         seg(a, b, k); seg(b, c, k); seg(c, d, k); seg(d, a, k);
       }
       function box(x0, y0, x1, y1, lv, h, kFloor, kTop, kPost) {
-        rect(x0, y0, x1, y1, lv, 0, kFloor); rect(x0, y0, x1, y1, lv, h, kTop);
+        var t0 = tag;
+        rect(x0, y0, x1, y1, lv, 0, kFloor); tag = "top"; rect(x0, y0, x1, y1, lv, h, kTop);
+        tag = "post";
         [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].forEach(function (q) { seg(P(q[0], q[1], lv, 0), P(q[0], q[1], lv, h), kPost); });
+        tag = t0;
       }
+      // 階ごとの床の板（その階の区画をすべて囲む水平の矩形。高さは階ごとに一定）
+      st.levels.forEach(function (l) {
+        var b = slabOf(l.id); if (b) rect(b[0], b[1], b[2], b[3], l.id, 0, 0.22);
+      });
       st.areas.forEach(function (a) {
         var r = a.rect;
         if (a.kind === "platform") box(r[0], r[1], r[2], r[3], a.level, 1.1, 0.5, 1, 0.55);
         else box(r[0], r[1], r[2], r[3], a.level, 3.2, 0.85, 0.22, 0.3);
       });
+      tag = "track";
       st.tracks.forEach(function (t) {
         var ax = t.from[0] === t.to[0] ? [0.55, 0] : [0, 0.55];
         seg(P(t.from[0] - ax[0], t.from[1] - ax[1], t.level, -0.2), P(t.to[0] - ax[0], t.to[1] - ax[1], t.level, -0.2), 0.32);
         seg(P(t.from[0] + ax[0], t.from[1] + ax[1], t.level, -0.2), P(t.to[0] + ax[0], t.to[1] + ax[1], t.level, -0.2), 0.32);
       });
+      tag = "post";
       // 号車の区切り（ホームの縁に短い縦線）
       st.platforms.forEach(function (p) {
         for (var c = 1; c <= p.cars + 1; c++) {
@@ -70,11 +89,12 @@
           seg(P(e2[0], e2[1], p.level, 1.1), P(e2[0], e2[1], p.level, 1.9), 0.3);
         }
       });
-      // 上下の移動の設備
+      // 上下の移動の設備（エレベーターは鉛直、階段・エスカレーターだけが斜め）
       st.edges.forEach(function (e) {
         var a = N[e.a], b = N[e.b];
         if (e.kind !== "stairs" && e.kind !== "escalator" && e.kind !== "elevator") return;
         var top = L[a.level].z > L[b.level].z ? a : b, bot = top === a ? b : a;
+        tag = e.kind === "elevator" ? "post" : e.kind;
         var dzTop = top.level === "L1" || /^P/.test(top.id) ? 1.1 : 0;
         if (e.kind === "elevator") {
           var h0 = 0, h1 = zOf(top.level, dzTop + 2.8) - zOf(bot.level, 0);
@@ -98,6 +118,7 @@
         var a1 = A(-1.1), a2 = A(1.1), b1 = B(-1.1), b2 = B(1.1);
         seg(a1, a2, 0.7); seg(b1, b2, 0.7);
       });
+      tag = "mark";
       // 改札（通路を横切る低い柱の列）と出口（門の枠）
       st.nodes.forEach(function (n) {
         if (n.kind === "gate") {
@@ -113,14 +134,15 @@
         }
       });
       // 選んだ号車（枠）とドア（縦の線）、乗換先
+      tag = "mark";
       if (sel) {
         var p = GT.stationGraph.platformOf(st, sel.platform);
         var cr = GT.stationGraph.carRange(p, sel.car);
         var w = p.axis === "x" ? [cr[0], p.center - 4.2, cr[1], p.center + 4.2] : [p.center - 5.2, cr[0], p.center + 5.2, cr[1]];
         var q = [P(w[0], w[1], p.level, 1.2), P(w[2], w[1], p.level, 1.2), P(w[2], w[3], p.level, 1.2), P(w[0], w[3], p.level, 1.2)];
-        for (var i = 0; i < 4; i++) S.push([q[i], q[(i + 1) % 4], 0.8, ACC]);
+        for (var i = 0; i < 4; i++) S.push([q[i], q[(i + 1) % 4], 0.8, ACC, "mark"]);
         var d = GT.stationGraph.doorXY(st, p, sel.car, sel.door);
-        S.push([P(d.x, d.y, p.level, 1.2), P(d.x, d.y, p.level, 4.2), 1, AMBER]);
+        S.push([P(d.x, d.y, p.level, 1.2), P(d.x, d.y, p.level, 4.2), 1, AMBER, "post"]);
       }
       return S;
     }
@@ -158,8 +180,12 @@
 
     // ── 投影
     var fit = { k: 1, ox: 0, oy: 0 };
-    function fovF() { return fit.k * H / (2 * Math.tan(20 * DEG)); }
-    function camDist() { var asp = W / Math.max(1, H); return (R * 0.98 / Math.tan(20 * DEG)) / Math.min(1, asp * 1.15) / cam.zoom; }
+    // 不具合の元：以前は画角 40° でカメラが駅の大きさ R の約 2.7 倍の距離にあり、パースが強すぎた。
+    // 細長いホーム（205m×10m）の水平な矩形が手前ほど大きく広がって、どの床も「坂」に見えていた。
+    // いまは画角を狭くして遠くから見る（正投影に近い。奥行きの差による大きさの差は約 ±8%）。
+    var FOV = 4 * DEG;
+    function fovF() { return fit.k * H / (2 * Math.tan(FOV / 2)); }
+    function camDist() { var asp = W / Math.max(1, H); return (R * 0.98 / Math.tan(FOV / 2)) / Math.min(1, asp * 1.15) / cam.zoom; }
     function proj(p, D, f) {
       var x = p[0] - cam.tx, y = p[1], z = p[2] - cam.tz;
       var cy_ = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
@@ -176,10 +202,10 @@
       var D = camDist(), f = fovF(), x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
       segs.forEach(function (s) { [s[0], s[1]].forEach(function (p) { var q = proj(p, D, f); if (!q) return; x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }); });
       if (x1 <= x0) return;
-      var padX = 20, padTop = 20, padBot = 30;
-      var k = Math.min((W - padX * 2) / (x1 - x0), (H - padTop - padBot) / (y1 - y0));
+      var padL = 112, padX = 20, padTop = 20, padBot = 30;   // 左は階の名前の列のぶん空ける
+      var k = Math.min((W - padL - padX) / (x1 - x0), (H - padTop - padBot) / (y1 - y0));
       fit.k = k;
-      fit.ox = -((x0 + x1) / 2 - W / 2) * k;
+      fit.ox = -((x0 + x1) / 2 - (W + padL - padX) / 2) * k;
       fit.oy = -((y0 + y1) / 2 - (H + padTop - padBot) / 2) * k;
     }
     function resize() {
@@ -217,7 +243,7 @@
       ctx.globalCompositeOperation = "source-over";
       ctx.fillStyle = "#020306";
       ctx.fillRect(0, 0, W, H);
-      var D = camDist(), f = fovF(), near = D - R * 0.7, far = D + R * 1.0;
+      var D = camDist(), f = fovF(), near = D - R * 0.7, far = D + R * 1.0;   // 奥行きの薄れ（D に対する相対値なので、遠くから見ても同じ効き）
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round"; ctx.lineJoin = "round";
       // 光のにじみ（太く淡く）→ 芯（細く強く）
@@ -226,23 +252,33 @@
         strokeBuckets(segs, D, f, near, far, col, 2.2, 0.22);
         strokeBuckets(segs, D, f, near, far, col, 1, 0.95);
       });
-      // 階の名前
+      // 階の名前：床の板の、画面でいちばん左の角から外側へ引き出し線を出し、左の列に階の高い順で並べる（重ならないよう 16px 以上離す）
       ctx.font = "11px ui-monospace, Menlo, monospace";
       ctx.textBaseline = "middle";
       var labs = [];
       st.levels.forEach(function (l) {
-        var a0 = st.areas.find(function (a) { return a.level === l.id; });
-        var q = a0 ? proj(P(a0.rect[0], a0.rect[1], l.id, 0), D, f) : null;
-        if (!q) return;
-        var tw = ctx.measureText(l.name).width;
-        labs.push({ t: l.name, x: Math.min(W - tw - 8, Math.max(8, q[0] - tw - 6)), y: q[1] });
+        var sb = slabOf(l.id); if (!sb) return;
+        var best = null;
+        [[sb[0], sb[1]], [sb[2], sb[1]], [sb[2], sb[3]], [sb[0], sb[3]]].forEach(function (c) {
+          var q = proj(P(c[0], c[1], l.id, 0), D, f); if (q && (!best || q[0] < best[0])) best = q;
+        });
+        if (best) labs.push({ t: l.name, z: L[l.id].z, ax: best[0], ay: best[1], y: best[1], w: ctx.measureText(l.name).width });
       });
-      // 重ならないよう縦にずらす
-      labs.sort(function (a, b) { return a.y - b.y; });
-      for (var li = 1; li < labs.length; li++) if (Math.abs(labs[li].x - labs[li - 1].x) < 90 && labs[li].y - labs[li - 1].y < 15) labs[li].y = labs[li - 1].y + 15;
-      ctx.fillStyle = "rgba(" + WHITE + ",.82)";
-      ctx.textAlign = "left";
-      labs.forEach(function (b) { ctx.fillText(b.t, b.x, b.y); });
+      labs.sort(function (a, b) { return b.z - a.z; });
+      for (var it = 0; it < 4; it++) {
+        for (var li = 1; li < labs.length; li++) if (labs[li].y < labs[li - 1].y + 16) labs[li].y = labs[li - 1].y + 16;
+        for (li = labs.length - 2; li >= 0; li--) if (labs[li].y > labs[li + 1].y - 16) labs[li].y = labs[li + 1].y - 16;
+      }
+      labs.forEach(function (b) {
+        b.y = Math.max(10, Math.min(H - 10, b.y));
+        var tx = 8, ex = tx + b.w + 4;
+        ctx.strokeStyle = "rgba(" + WHITE + ",.35)"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(ex, b.y); ctx.lineTo(Math.max(ex + 6, b.ax - 3), b.y); ctx.lineTo(b.ax, b.ay); ctx.stroke();
+        ctx.fillStyle = "rgba(" + WHITE + ",.85)"; ctx.textAlign = "left";
+        ctx.fillText(b.t, tx, b.y);
+        b.box = [tx, b.y - 7, ex, b.y + 7];
+      });
+      lastLabels = labs;
       // 経路
       if (route) {
         var pr = route.map(function (p) { return proj(p, D, f); });
@@ -308,7 +344,7 @@
       if (animating(now)) kick(); else last = 0;
     }
     function kick() { if (!raf && alive) raf = requestAnimationFrame(frame); }
-    function clampP(p) { return Math.min(80 * DEG, Math.max(8 * DEG, p)); }
+    function clampP(p) { return Math.min(90 * DEG, Math.max(12 * DEG, p)); }   // ピッチは 12°〜真上 90°。ヨーは鉛直の軸まわりだけなので床は常に水平
 
     // ── 操作：1 本指＝回転、2 本指＝拡大（つまむ）と平行移動、ホイール＝拡大、矢印キー＝回転、＋−＝拡大
     var pts = {}, drag = { active: false };
@@ -369,7 +405,7 @@
     if (ro) ro.observe(canvas); else window.addEventListener("resize", resize);
     resize();
 
-    var lastR = null;
+    var lastR = null, lastLabels = [];
     return {
       setSelection: function (s) { sel = s; segs = build(); kick(); },
       setRoute: function (r) {
@@ -383,6 +419,10 @@
       resume: function () { alive = true; last = 0; resize(); },
       destroy: function () { alive = false; if (raf) cancelAnimationFrame(raf); raf = 0; if (ro) ro.disconnect(); },
       _state: function () { return { cam: Object.assign({}, cam), spread: spread, routeT: routeT, segs: segs.length, running: !!raf }; },
+      _segs: function () { return segs.map(function (s) { return { a: s[0], b: s[1], tag: s[4] }; }); },
+      _levelHeights: function () { var o = {}; st.levels.forEach(function (l) { o[l.id] = zOf(l.id, 0); }); return o; },
+      _labels: function () { return lastLabels.map(function (b) { return { t: b.t, box: b.box }; }); },
+      _setCam: function (yaw, pitch) { cam.yaw = yaw; cam.pitch = clampP(pitch); vel.yaw = vel.pitch = 0; fitView(); kick(); },
       _project: function (x, y, level, dz) { return proj(P(x, y, level, dz), camDist(), fovF()); }
     };
   }
