@@ -1,0 +1,26 @@
+{
+  "name": "gyrotraffic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GyrotraffIC: 時刻表ベース（RAPTOR）の経路探索の中核",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "gyrotraffic": "dist/src/cli.js" },
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "bench": "npm run build && node dist/bench/bench.js",
+    "cli": "node dist/src/cli.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "5.6.3",
+    "@types/node": "20.17.6"
+  },
+  "dependencyLicenses": {
+    "typescript": "Apache-2.0（開発時のみ・型検査とビルド）",
+    "@types/node": "MIT（開発時のみ・型定義）",
+    "実行時の依存": "なし（Node 標準ライブラリのみ）"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "format": "gyrotraffic-cases/1",
+  "gtfs": "しおかぜライン（岩宇地域公共交通活性化協議会・CC BY 4.0）feed_version 20260925_バスキャッチ。取得元 https://api.gtfs-data.jp/v2/organizations/gan-wu/feeds/shiokazeline/files/feed.zip",
+  "timezone": "Asia/Tokyo",
+  "cases": [
+    { "id": "weekday-morning", "from": "1_01", "to": "10_01", "depart": "2026-10-20T07:00:00+09:00" },
+    { "id": "saturday-night-to-next-morning", "from": "55_02", "to": "1_01", "depart": "2026-10-24T23:00:00+09:00" },
+    { "id": "arrive-by-noon", "from": "10_01", "to": "1_01", "arriveBy": "2026-10-20T13:00:00+09:00" }
+  ]
+}
