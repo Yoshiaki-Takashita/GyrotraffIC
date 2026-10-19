@@ -163,6 +163,8 @@ for (const theme of ["dark", "light"]) {
   if (theme === "dark") { await p.waitForTimeout(1400); await p.screenshot({ path: join(out, "station-stepfree-dark.png") }); }
   await p.click("#stStep");
   // 回転・拡大・キー
+  await p.evaluate(() => { document.getElementById("view").scrollTop = 0; });   // 段差のボタン（図の下）を押すと画面が動くので戻す
+  await p.waitForTimeout(600);   // ルートに合わせるカメラの動きが終わるまで
   const s0 = await p.evaluate(() => GT.station.view._state().cam);
   const cb = await p.locator("#stc").boundingBox();
   await p.mouse.move(cb.x + 150, cb.y + 200); await p.mouse.down(); await p.mouse.move(cb.x + 260, cb.y + 230, { steps: 8 }); await p.mouse.up();
@@ -176,17 +178,21 @@ for (const theme of ["dark", "light"]) {
   ok(s3.zoom < s2.zoom && s3.yaw !== s2.yaw, C, "キー操作が効かない");
   await p.click("#stReset");
   const s4 = await p.evaluate(() => GT.station.view._state().cam);
-  ok(Math.abs(s4.yaw - s0.yaw) < 1e-6 && s4.zoom === 1, C, "視点を戻せない");
+  const fz = await p.evaluate(() => GT.station.view._state().fitted.zoom);   // 視点を戻す＝初めの向きで、ルート全体に合わせた倍率
+  ok(Math.abs(s4.yaw - s0.yaw) < 1e-6 && Math.abs(s4.zoom - fz) < 1e-9, C, "視点を戻せない");
   // 2 本指のつまみ（CDP のタッチ）
   if (theme === "dark") {
     const cdp = await k.c.newCDPSession(p);
     const tp = (pts) => pts.map((q, i) => ({ x: q[0], y: q[1], id: i }));
-    const cxp = cb.x + cb.width / 2, cyp = cb.y + cb.height / 2;
+    // 段差のボタンは図の下（ルートの種類の列）にあるので、押した時に画面が動く。図の位置を測り直してからつまむ
+    await p.evaluate(() => { document.getElementById("view").scrollTop = 0; });
+    const cbn = await p.locator("#stc").boundingBox();
+    const cxp = cbn.x + cbn.width / 2, cyp = cbn.y + cbn.height / 2;
     await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: tp([[cxp - 30, cyp], [cxp + 30, cyp]]) });
     for (let i = 1; i <= 8; i++) await cdp.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: tp([[cxp - 30 - i * 10, cyp], [cxp + 30 + i * 10, cyp]]) });
     await cdp.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
     const s5 = await p.evaluate(() => GT.station.view._state().cam);
-    ok(s5.zoom > 1.5, C, "ピンチで拡大しない " + s5.zoom);
+    ok(s5.zoom > s4.zoom * 1.5, C, "ピンチで拡大しない " + s5.zoom);
     await p.click("#stSpread");
     await p.waitForTimeout(900);
     ok((await p.evaluate(() => GT.station.view._state().spread)) > 4.9, C, "階の間隔が広がらない");
@@ -259,6 +265,23 @@ for (const theme of ["dark", "light"]) {
     ok(L.length === 3, C, `${name}：階の名前が 3 つない`);
     await p.screenshot({ path: join(out, `station-view-${name}.png`) });
   }
+  // 見本の駅も、階段・エスカレーター・エレベーターは 3D のモデル（段・ステップ・手すり・縦の箱）
+  const m = await p.evaluate(() => { const S = GT.station.view._segs(); return { st: S.filter((s) => s.kind === "stairs").length, es: S.filter((s) => s.kind === "escalator").length, el: S.filter((s) => s.kind === "elevator").length }; });
+  ok(m.st >= 3 * 40 && m.es >= 3 * 25 && m.el >= 4 * 12, C, "見本の駅のモデルの線が少ない " + JSON.stringify(m));
+  // エスカレーター B（1・2 番線）に寄ったアップ
+  await p.evaluate(() => { const v = GT.station.view; v._setCam(-62 * Math.PI / 180, 26 * Math.PI / 180); v.zoomTo(110, 4, 9); });
+  await p.waitForTimeout(150);
+  await p.screenshot({ path: join(out, "station-models.png") });
+  await p.evaluate(() => GT.station.view.reset());
+  // 3 種のルート（見本）：段差を避ける＝エレベーター、トイレ＝最寄りのトイレ
+  await p.click("#stStep"); await p.waitForTimeout(150);
+  ok(await p.locator(".st-avoid-ok").count() === 1, C, "見本：段差を避けられる時の表示がない");
+  await p.click("#stMode-toilet"); await p.waitForTimeout(150);
+  const w = await p.evaluate(() => ({ r: GT.station.compute().r, t: (document.querySelector(".st-toilet") || {}).textContent, n: GT.station.view.nearInfo() }));
+  ok(w.r.ok && /^WC/.test(w.r.goal) && /トイレ/.test(w.t || ""), C, "見本：トイレへのルート " + JSON.stringify(w.r.goal));
+  ok(w.n.shown >= 1 && w.n.shown <= 8, C, "見本：施設の記号の数 " + w.n.shown);
+  await p.screenshot({ path: join(out, "station-toilet.png") });
+  await p.click("#stMode-fast");
   await done(C, k);
 }
 

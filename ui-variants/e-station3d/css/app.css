@@ -493,3 +493,11 @@ button, .primary, .secondary, .danger { font: inherit; }
 .sj-counts { display: flex; flex-wrap: wrap; gap: var(--s3); }
 .sj-count { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-num); }
 .sj-count .ic { width: 15px; height: 15px; }
+/* ルートの種類（最短・段差を避ける・トイレ）と区間の表示 */
+.st-modes { display: flex; align-items: center; gap: var(--s1); margin-top: var(--s2); }
+.st-mode { flex: none; min-width: 52px; min-height: 44px; border: 1px solid var(--line); border-radius: var(--r-m); background: none; color: var(--ink); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.st-mode[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); box-shadow: var(--glow); }
+.st-secn { margin-left: auto; font-family: var(--font-num); font-size: var(--fs-s); color: var(--ink-2, var(--ink)); }
+.st-step[data-sec] { cursor: pointer; border-radius: var(--r-s, 6px); }
+.st-step[aria-current="true"] { outline: 1px solid var(--accent); background: rgba(95,214,195,.08); }
+.st-step[data-sec]:focus-visible { outline: 2px solid var(--accent); }

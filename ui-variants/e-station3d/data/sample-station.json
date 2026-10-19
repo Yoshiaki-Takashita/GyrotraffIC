@@ -71,6 +71,8 @@
     { "id": "P56_es", "level": "B3", "x": 181, "y": 50, "kind": "escalator", "name": "エスカレーターF（下）" },
     { "id": "GN", "level": "B1", "x": 90, "y": -8, "kind": "gate", "name": "北改札" },
     { "id": "EXN", "level": "B1", "x": 90, "y": -16, "kind": "exit", "name": "北口" },
+    { "id": "WC1", "level": "B1", "x": 100, "y": 30, "kind": "toilet", "name": "中央広場のトイレ" },
+    { "id": "WC2", "level": "B1", "x": 166, "y": 30, "kind": "toilet", "name": "乗換改札前のトイレ" },
     { "id": "GS", "level": "B1", "x": 90, "y": 48, "kind": "gate", "name": "南改札" },
     { "id": "EXS", "level": "B1", "x": 90, "y": 56, "kind": "exit", "name": "南口" }
   ],
@@ -100,6 +102,8 @@
     { "a": "S_stT", "b": "P56_st", "sec": 55, "kind": "stairs" },
     { "a": "S_elT", "b": "P56_el", "sec": null, "kind": "elevator" },
     { "a": "S_esT", "b": "P56_es", "sec": 50, "kind": "escalator" },
+    { "a": "K3", "b": "WC1", "sec": 12, "kind": "walk" },
+    { "a": "K6", "b": "WC2", "sec": 10, "kind": "walk" },
     { "a": "K3", "b": "GN", "sec": 24, "kind": "walk" },
     { "a": "GN", "b": "EXN", "sec": 10, "kind": "gate" },
     { "a": "K3", "b": "GS", "sec": 24, "kind": "walk" },

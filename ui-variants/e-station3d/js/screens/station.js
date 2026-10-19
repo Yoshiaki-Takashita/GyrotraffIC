@@ -11,7 +11,10 @@
   var which = "sample";
   try { if (localStorage.getItem("gyrotraffic.station") === "shinjuku") which = "shinjuku"; } catch (e) {}
   var G = function () { return GT.stationGraph; };
-  var state = { from: "P12", car: 7, door: 3, to: "P56", stepFree: false, spread: false };
+  var state = { from: "P12", car: 7, door: 3, to: "P56", mode: "fast", spread: false };   // mode：fast 最短／avoid 段差を避ける／toilet 最寄りのトイレ
+  var MODES = [["fast", "clock"], ["avoid", "stepFree"], ["toilet", "toilet"]];
+  function modeOpts() { return { avoidSteps: state.mode === "avoid" }; }
+  function modeTo(to) { return state.mode === "toilet" ? { kind: "toilet" } : to; }
   var view3d = null;
 
   function plat(id) { return G().platformOf(S, id); }
@@ -43,27 +46,30 @@
       "</div>";
   }
 
+  // 手順の行＝経路の区間（G().sections）。行を押すとその区間に寄る
+  function secRows(r) {
+    return G().sections(r).map(function (q, k) {
+      var a = r.steps[q.i0], sec = 0;
+      for (var i = q.i0; i <= q.i1; i++) sec = sec == null || r.steps[i].sec == null ? null : sec + r.steps[i].sec;
+      return { k: k, kind: q.kind, a: a.a, b: r.steps[q.i1].b, sec: sec, dist: a.dist, guess: q.guess, unknownDoor: a.unknownDoor };
+    });
+  }
+  function secAttr(s) { return ' data-sec="' + s.k + '" tabindex="0" role="button" aria-current="false"'; }
   function stepsHtml(r) {
     if (!r.ok || r.same) return "";
-    var rows = [];
-    r.steps.forEach(function (s, i) {
-      // 同じ種類の通路が続く所はまとめる
-      var prev = rows[rows.length - 1];
-      if (prev && s.kind === "walk" && prev.kind === "walk") { prev.sec = prev.sec == null || s.sec == null ? null : prev.sec + s.sec; prev.b = s.b; return; }
-      rows.push({ kind: s.kind, a: s.a, b: s.b, sec: s.sec, dist: s.dist, i: i });
-    });
+    var rows = secRows(r);
     return '<ol class="st-steps" aria-label="' + t("st.steps") + '">' + rows.map(function (s) {
       var icn = s.kind === "walk" ? "walk" : s.kind === "platform" ? "platform" : s.kind;
       var what = s.kind === "platform" ? t("st.walkPlatform", { m: Math.round(s.dist) }) + " → " + esc(nodeName(s.b)) :
         s.kind === "walk" ? esc(nodeName(s.b)) : esc(nodeName(s.a).replace(/（下）/, "")) ;
       var sec = s.sec == null ? '<span class="st-unk">' + ic("confUnknown") + t("st.unknown") + "</span>" : fmt(s.sec);
-      return '<li class="st-step k-' + s.kind + '">' + ic(icn, "", t("st.kind." + s.kind)) + '<span class="st-what">' + what + '</span><span class="st-sec">' + sec + "</span></li>";
+      return '<li class="st-step k-' + s.kind + '"' + secAttr(s) + '>' + ic(icn, "", t("st.kind." + s.kind)) + '<span class="st-what">' + what + '</span><span class="st-sec">' + sec + "</span></li>";
     }).join("") + "</ol>";
   }
 
   function compute() {
-    var r = G().route(S, { platform: state.from, car: state.car, door: state.door }, state.to, { stepFree: state.stepFree });
-    var b = G().bestDoor(S, state.from, state.to, { stepFree: state.stepFree });
+    var r = G().route(S, { platform: state.from, car: state.car, door: state.door }, modeTo(state.to), modeOpts());
+    var b = G().bestDoor(S, state.from, modeTo(state.to), modeOpts());
     return { r: r, b: b };
   }
 
@@ -79,15 +85,63 @@
       }
     }
     return '<div class="st-read"><span class="lbl">' + t("st.total") + '</span><div class="st-big' + (r.unknown ? " has-unk" : "") + '">' + esc(timeText(r)) + "</div></div>" +
-      prop + stepsHtml(r) +
+      modeNotes(r, nodeName) + prop + stepsHtml(r) + '<p class="fine st-nearc" id="stNear"></p>' +
       '<p class="note">' + ic("info") + t("st.sample") + "</p>" +
       '<p class="fine">' + ic("confUnknown") + " " + t("st.doorsSrc") + " · " + esc(S.assumptions.note) + "</p>";
+  }
+
+  // ルートの種類ごとの注記：段差を避けられない時は正直に、トイレは行き先の名前、行けない時は「経路不明」
+  function modeNotes(r, nameOf) {
+    var h = "";
+    if (state.mode === "avoid" && r.ok && !r.same) h += r.stepEdges ? '<p class="note st-avoid-no">' + ic("confUnknown") + esc(t("st.avoidNo", { n: r.stepEdges })) + "</p>" : '<p class="note st-avoid-ok">' + ic("elevator") + esc(t("st.avoidOk")) + "</p>";
+    if (state.mode === "toilet") h += r.ok && r.goal ? '<p class="note st-toilet">' + ic("toilet") + esc(t("st.toiletTo", { name: nameOf(r.goal) })) + "</p>" : '<p class="note st-toilet-none">' + ic("confUnknown") + esc(t("st.noToilet")) + "</p>";
+    return h;
+  }
+  function modesBar() {
+    return '<div class="st-modes" role="group" aria-label="' + t("st.mode") + '">' + MODES.map(function (m) {
+      return '<button type="button" class="st-mode" id="' + (m[0] === "avoid" ? "stStep" : "stMode-" + m[0]) + '" data-mode="' + m[0] + '" aria-pressed="' + (state.mode === m[0]) + '" aria-label="' + esc(t("st.mode." + m[0])) + '" title="' + esc(t("st.mode." + m[0])) + '">' + ic(m[1]) + "</button>";
+    }).join("") + '<span class="st-secn" id="stSecN" aria-live="polite"></span></div>';
+  }
+  // 区間の表示（手順の行の強調・「区間 i／n」）と施設の件数
+  function syncSection(el) {
+    if (!view3d) return;
+    var i = view3d.section(), n = view3d.sectionCount();
+    Array.prototype.forEach.call(el.querySelectorAll(".st-step[data-sec]"), function (li) { li.setAttribute("aria-current", String(Number(li.dataset.sec) === i)); });
+    var sn = el.querySelector("#stSecN"); if (sn) sn.textContent = n ? (i < 0 ? t("st.sectionAll") + " · " + n : t("st.sectionN", { i: i + 1, n: n })) : "";
+  }
+  function syncNear(el) {
+    var ne = el.querySelector("#stNear"); if (!ne || !view3d) return;
+    var info = view3d.nearInfo();
+    ne.innerHTML = info.items ? ic("pin") + " " + esc(t("st.near", { n: info.items, m: info.shown, all: info.all })) : "";
+  }
+  function bindRoute(el, again) {
+    Array.prototype.forEach.call(el.querySelectorAll(".st-mode"), function (b) {
+      b.onclick = function () {
+        var m = b.dataset.mode;
+        state.mode = state.mode === m && m !== "fast" ? "fast" : m;   // もう一度押すと最短に戻る
+        Array.prototype.forEach.call(el.querySelectorAll(".st-mode"), function (x) { x.setAttribute("aria-pressed", String(x.dataset.mode === state.mode)); });
+        again();
+      };
+    });
+    el.querySelector("#stPrev").onclick = function () { view3d.stepSection(-1); syncSection(el); };
+    el.querySelector("#stNext").onclick = function () { view3d.stepSection(1); syncSection(el); };
+    el.querySelector("#stFit").onclick = function () { view3d.fitRoute(); syncSection(el); };
+    el.querySelector("#stc").addEventListener("keyup", function (e) { if (e.key === "[" || e.key === "]") syncSection(el); });
+    el.querySelector("#stOut").addEventListener("click", function (e) {
+      var li = e.target.closest && e.target.closest(".st-step[data-sec]"); if (!li || !view3d) return;
+      var k = Number(li.dataset.sec); view3d.setSection(view3d.section() === k ? -1 : k); syncSection(el);
+    });
+    el.querySelector("#stOut").addEventListener("keydown", function (e) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      var li = e.target.closest && e.target.closest(".st-step[data-sec]"); if (!li) return;
+      e.preventDefault(); li.click();
+    });
   }
 
   function update(el, animate) {
     var c = compute();
     el.querySelector("#stOut").innerHTML = outHtml(c);
-    if (view3d) { view3d.setSelection({ platform: state.from, car: state.car, door: state.door }); view3d.setRoute(c.r); }
+    if (view3d) { view3d.setSelection({ platform: state.from, car: state.car, door: state.door }); view3d.setRoute(c.r); syncNear(el); syncSection(el); }
     var bb = el.querySelector("#stBest");
     if (bb) bb.onclick = function () {
       state.car = c.b.car; state.door = c.b.door;
@@ -142,25 +196,20 @@
   }
   function sjFrom(id) { return G().platformOf(SJ, id) ? { platform: id } : { node: id }; }
   function sjCompute() {
-    var o = { stepFree: state.stepFree };
-    var r = G().route(SJ, sjFrom(sj.from), sj.to, o);
-    var strict = r.ok && r.guessed ? G().route(SJ, sjFrom(sj.from), sj.to, Object.assign({ noGuess: true }, o)) : null;
+    var o = modeOpts(), to = modeTo(sj.to);
+    var r = G().route(SJ, sjFrom(sj.from), to, o);
+    var strict = r.ok && r.guessed ? G().route(SJ, sjFrom(sj.from), to, Object.assign({ noGuess: true }, o)) : null;
     return { r: r, strict: strict };
   }
   function sjSteps(r) {
     if (!r.ok || r.same) return "";
-    var rows = [];
-    r.steps.forEach(function (s) {
-      var prev = rows[rows.length - 1];
-      if (prev && s.kind === prev.kind && !s.guess && !prev.guess && s.kind !== "platform") { prev.sec = prev.sec == null || s.sec == null ? null : prev.sec + s.sec; prev.b = s.b; return; }
-      rows.push({ kind: s.kind, a: s.a, b: s.b, sec: s.sec, guess: s.guess, unknownDoor: s.unknownDoor });
-    });
+    var rows = secRows(r);
     return '<ol class="st-steps" aria-label="' + t("st.steps") + '">' + rows.map(function (s) {
       var icn = s.kind === "walk" ? "walk" : s.kind === "platform" ? "platform" : s.kind === "vertical" || s.kind === "ramp" || s.kind === "step" ? "layers" : s.kind;
       var what = s.unknownDoor ? esc(t("sj.platStart")) + " → " + esc(sjName(s.b)) : esc(sjName(s.b));
       var sec = s.unknownDoor ? '<span class="st-unk">' + ic("confUnknown") + t("st.unknown") + "</span>" : s.sec == null ? '<span class="st-unk">' + ic("confUnknown") + t("st.unknown") + "</span>" : fmt(s.sec);
       var g = s.guess ? '<span class="sj-guess">' + ic("confInferred", "", t("sj.guessStep")) + "</span>" : "";
-      return '<li class="st-step k-' + esc(s.kind) + (s.guess ? " is-guess" : "") + '">' + ic(icn, "", t("st.kind." + s.kind)) + '<span class="st-what">' + g + what + '</span><span class="st-sec">' + sec + "</span></li>";
+      return '<li class="st-step k-' + esc(s.kind) + (s.guess ? " is-guess" : "") + '"' + secAttr(s) + '>' + ic(icn, "", t("st.kind." + s.kind)) + '<span class="st-what">' + g + what + '</span><span class="st-sec">' + sec + "</span></li>";
     }).join("") + "</ol>";
   }
   function sjOut(c) {
@@ -171,7 +220,7 @@
     if (r.ok && r.guessed) notes += '<p class="note sj-guessnote">' + ic("confInferred") + esc(t("sj.guessed", { n: r.guessed })) + (c.strict && !c.strict.ok ? " · " + esc(t("sj.strictNone")) : "") + "</p>";
     var counts = KINDS.map(function (k) { return '<span class="sj-count">' + ic(k === "exit" ? "exit" : k, "", t(k === "stairs" || k === "escalator" || k === "elevator" ? "st.kind." + k : "sj.kind." + k)) + v.counts[k] + "</span>"; }).join("");
     return '<div class="st-read"><span class="lbl">' + t("sj.total") + '</span><div class="st-big' + (!r.ok || r.unknown ? " has-unk" : "") + '" id="sjBig">' + esc(big) + "</div></div>" +
-      notes + sjSteps(r) +
+      notes + modeNotes(r, sjName) + sjSteps(r) + '<p class="fine st-nearc" id="stNear"></p>' +
       '<p class="note">' + ic("info") + esc(t("sj.draft")) + "</p>" +
       '<p class="fine">' + esc(t("sj.timeNote")) + "</p>" +
       '<p class="fine sj-counts" aria-label="' + t("sj.counts") + '">' + counts + "</p>" +
@@ -182,7 +231,7 @@
   function sjUpdate(el, animate) {
     var c = sjCompute();
     el.querySelector("#stOut").innerHTML = sjOut(c);
-    if (view3d) view3d.setRoute(c.r);
+    if (view3d) { view3d.setRoute(c.r); syncNear(el); syncSection(el); }
     if (animate && GT.vfx) GT.vfx.enter(Array.prototype.slice.call(el.querySelectorAll(".st-step")), { gap: 25 });
     GT.station.last = c;
   }
@@ -212,11 +261,13 @@
         '<div class="st-tools">' +
           '<button type="button" class="iconbtn st-tool" id="stReset" aria-label="' + t("st.reset") + '">' + ic("reset") + "</button>" +
           '<button type="button" class="iconbtn st-tool" id="stSpread" aria-pressed="' + state.spread + '" aria-label="' + t("st.levels") + '">' + ic("layers") + "</button>" +
-          '<button type="button" class="iconbtn st-tool" id="stStep" aria-pressed="' + state.stepFree + '" aria-label="' + t("st.stepFree") + '">' + ic("stepFree") + "</button>" +
+          '<button type="button" class="iconbtn st-tool" id="stFit" aria-label="' + t("st.fit") + '">' + ic("target") + "</button>" +
+          '<button type="button" class="iconbtn st-tool" id="stPrev" aria-label="' + t("st.prev") + '">' + ic("back") + "</button>" +
+          '<button type="button" class="iconbtn st-tool" id="stNext" aria-label="' + t("st.next") + '">' + ic("chev") + "</button>" +
         "</div>" +
         '<span class="st-name">' + esc(S.name) + "</span>" +
         (which === "shinjuku" && !SJ ? '<p class="sj-loading" id="sjLoading">' + esc(t(sj.failed ? "sj.loadFail" : "sj.loading")) + "</p>" : "") +
-        "</div>" +
+        "</div>" + (which === "shinjuku" && !SJ ? "" : modesBar()) +
         (isSj ? sjBar() + sjControls() : which === "shinjuku" ? "" : controls()) +
         '<div id="stOut" class="st-out" aria-live="polite"></div>';
     },
@@ -257,7 +308,7 @@
         el.querySelector("#sjTo").onchange = function (e) { sj.to = e.target.value; sjUpdate(el, true); };
         el.querySelector("#stReset").onclick = function () { view3d.reset(); };
         el.querySelector("#stSpread").onclick = function (e) { state.spread = !state.spread; e.currentTarget.setAttribute("aria-pressed", state.spread); view3d.setSpread(state.spread); };
-        el.querySelector("#stStep").onclick = function (e) { state.stepFree = !state.stepFree; e.currentTarget.setAttribute("aria-pressed", state.stepFree); sjUpdate(el, true); };
+        bindRoute(el, function () { sjUpdate(el, true); });
         GT.station = { view: view3d, state: state, sj: sj, data: SJ, which: which, compute: sjCompute };
         sjUpdate(el, false);
         return;
@@ -280,7 +331,7 @@
       bind();
       el.querySelector("#stReset").onclick = function () { view3d.reset(); };
       el.querySelector("#stSpread").onclick = function (e) { state.spread = !state.spread; e.currentTarget.setAttribute("aria-pressed", state.spread); view3d.setSpread(state.spread); };
-      el.querySelector("#stStep").onclick = function (e) { state.stepFree = !state.stepFree; e.currentTarget.setAttribute("aria-pressed", state.stepFree); update(el, true); };
+      bindRoute(el, function () { update(el, true); });
       update(el, false);
       GT.station = { view: view3d, state: state, compute: compute, which: which };
     },

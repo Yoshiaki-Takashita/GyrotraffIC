@@ -5,22 +5,38 @@
 //   ・奥行きで薄くする（lineF の uFade：1 − 0.74 × smoothstep(near, far, 奥行き)）
 //   ・光のにじみ（UnrealBloomPass 強さ .42・半径 .38）→ ここでは同じ線を太く淡く重ね描きして近づけた
 // GNOTO は three.js（WebGL）だが、この試作は外部のライブラリ・CDN を使わない約束なので、投影も自前で書いた（DESIGN.md）。
-// 新宿の下書き（st._view.draft）では、区画は多角形の床の輪郭、施設は種類ごとの枠線の記号（画面上で一定の大きさ）で描き、
-// 種類ごとの表示のオン／オフ・階ごとの強調（他の階は薄く）・視錐台の外の省略・1 コマ 1 回の投影で数千点を回す。
+//
+// 使い方は「決めたルートを見る」が基本（自由に見て回るのではない）：
+//   ・ルートを含む階の、ルートから一定距離（CORR）の中だけを細かく描く。遠い所は描かないか極薄の輪郭だけ。
+//     階ごとに区画・辺を分けておき、ルートの階だけを組み立てる（遅延）。視錐台の外は省く。1 コマ 1 回の投影。
+//   ・床は水平のまま。斜めは階段・エスカレーターの 3D の枠線のモデルだけ（階段＝段と手すり、エスカレーター＝ステップと手すりの斜面、
+//     エレベーター＝縦の箱の枠）。各階の床をこのモデルがつなぐ。見本の駅も同じ描き方。
+//   ・トイレ・エレベーター・出口・改札は、ルートの近くの分だけ（距離 GLYPH_R 以内・近い順に上限・近いものは 1 つにまとめて件数）、
+//     その場所から画面の下の列へ引き出し線を出して記号を並べる（重ならない）。
+//   ・カメラはルートに合わせて自動で合わせ、区間ごとに寄って見られる（拡大の上限を大きくした）。
 (function (GT) {
   "use strict";
   var DEG = Math.PI / 180;
   var WHITE = "235,242,245", ACC = "95,214,195", AMBER = "240,178,78";
+  var VERT = { stairs: 1, escalator: 1 };
 
   function smooth(a, b, x) { var t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
+  // 点 (px,py) と線分 (ax,ay)-(bx,by) の距離
+  function dseg(px, py, ax, ay, bx, by) {
+    var dx = bx - ax, dy = by - ay, l = dx * dx + dy * dy, t = l ? ((px - ax) * dx + (py - ay) * dy) / l : 0;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    var x = ax + dx * t - px, y = ay + dy * t - py;
+    return Math.sqrt(x * x + y * y);
+  }
 
   function create(canvas, st, opts) {
     opts = opts || {};
     var ctx = canvas.getContext("2d");
     var L = {}; st.levels.forEach(function (l) { L[l.id] = l; });
     var N = {}; st.nodes.forEach(function (n) { N[n.id] = n; });
-    // 駅の大きさ（全体が収まる距離を決める）
     var draft = !!(st._view && st._view.draft);
+    // ルートの周りの範囲（m）。見本の駅は小さいので全部描く
+    var CORR = draft ? 32 : 1e9, GLYPH_R = draft ? 40 : 1e9, GLYPH_MAX = 8, DETAIL_M = 14, MERGE_M = draft ? 12 : 4;
     var minX = 1e9, maxX = -1e9, minY = 1e9, maxY = -1e9;
     st.areas.forEach(function (a) { minX = Math.min(minX, a.rect[0]); maxX = Math.max(maxX, a.rect[2]); minY = Math.min(minY, a.rect[1]); maxY = Math.max(maxY, a.rect[3]); });
     if (draft) st.nodes.forEach(function (n) { minX = Math.min(minX, n.x); maxX = Math.max(maxX, n.x); minY = Math.min(minY, n.y); maxY = Math.max(maxY, n.y); });
@@ -30,17 +46,26 @@
     var zMid = zs.length ? (Math.max.apply(null, zs) + Math.min.apply(null, zs)) / 2 : 0;
     var R = Math.hypot(maxX - minX, maxY - minY) / 2;
 
-    // 新宿は南北に長い（約 800 m）ので、長い向きが画面の横に来る角度から見る
-    var HOME = draft ? { yaw: -72 * DEG, pitch: 40 * DEG, zoom: 1, tx: 0, tz: 0 } : { yaw: -28 * DEG, pitch: 38 * DEG, zoom: 1, tx: 0, tz: 0 };
-    var cam = { yaw: HOME.yaw, pitch: HOME.pitch, zoom: 1, tx: 0, tz: 0 };
+    // 階ごとに区画・辺を分けておく（ルートの階だけを組み立てるため）
+    var areasBy = {}, edgesBy = {};
+    st.areas.forEach(function (a) { (areasBy[a.level] = areasBy[a.level] || []).push(a); });
+    st.edges.forEach(function (e) {
+      var a = N[e.a], b = N[e.b]; if (!a || !b) return;
+      (edgesBy[a.level] = edgesBy[a.level] || []).push(e);
+      if (b.level !== a.level) (edgesBy[b.level] = edgesBy[b.level] || []).push(e);
+    });
+
+    var HOME = draft ? { yaw: -72 * DEG, pitch: 40 * DEG } : { yaw: -28 * DEG, pitch: 38 * DEG };
+    var cam = { yaw: HOME.yaw, pitch: HOME.pitch, zoom: 1, tx: 0, ty: 0, tz: 0 };
+    var ZMIN = 0.3, ZMAX = 220;   // 拡大の上限（以前は 6 倍）。画面上 1 m が数十 px まで寄れる
     var SPREAD = draft ? [3.2, 7] : [2.6, 5];   // 高さの誇張（階の間が薄く見えないように）。「階の間隔を広げる」で 5 倍
     var spread = SPREAD[0], spreadTo = SPREAD[0];
     var vel = { yaw: 0, pitch: 0 };
     var W = 0, H = 0, dpr = 1;
-    var route = null, routeT = 1, routeT0 = 0, pulseT0 = 0, sel = null;
+    var route = null, routeMeta = [], routeT = 1, routeT0 = 0, pulseT0 = 0, sel = null;
+    var secs = [], curSec = -1, scope = null, fitted = null, anim = null;
     var raf = 0, alive = true;
-    // 表示の状態：種類ごとのオン／オフ（hidden[種類]=true で隠す）と、強調する階（null＝全部）
-    var hidden = {}, focus = null, glyphs = [], perf = { n: 0, sum: 0, last: 0, max: 0, drawn: 0, culled: 0 };
+    var hidden = {}, focus = null, glyphs = [], near = [], nearCount = 0, perf = { n: 0, sum: 0, last: 0, max: 0, drawn: 0, culled: 0 };
     var reduced = function () { return GT.M ? GT.M.reduced() : false; };
 
     // ── 世界の座標（x 東・y 北・z 上、単位 m）→ 描画の座標（X 右・Y 上・Z 手前）
@@ -48,8 +73,7 @@
     function P(x, y, level, dz) { return [x - cx, zOf(level, dz), y - cy]; }
     function slabOf(lv) {
       var b = null, m = draft ? 8 : 4;
-      st.areas.forEach(function (a) {
-        if (a.level !== lv) return;
+      (areasBy[lv] || []).forEach(function (a) {
         var r = a.rect;
         b = b ? [Math.min(b[0], r[0] - m), Math.min(b[1], r[1] - m), Math.max(b[2], r[2] + m), Math.max(b[3], r[3] + m)] : [r[0] - m, r[1] - m, r[2] + m, r[3] + m];
       });
@@ -59,12 +83,42 @@
       });
       return b;
     }
+    var slabs = {}; st.levels.forEach(function (l) { slabs[l.id] = slabOf(l.id); });
 
-    // ── 線分を作る（形は spread で変わるので、毎回作る。数百本なので軽い）
-    function build() {
-      var S = [];   // [a, b, 強さ, 色, 種類]  種類：floor（床・水平）/ post（鉛直）/ stairs・escalator（斜め）/ mark
-      var tag = "floor", cur = { lv: null, lv2: null, kind: null };   // 線ごとに、どの階・どの種類の物かを持つ（強調・表示切り替え用）
-      function seg(a, b, k, col) { S.push([a, b, k, col || WHITE, tag, cur.lv, cur.lv2, cur.kind]); }
+    // ── 上下の移動の設備のモデルの両端（世界の座標）。見本と新宿で同じ形のモデルを描く
+    // 戻り値: { top:{x,y,lv,dz}, bot:{...}, topNode, botNode }
+    function vEnds(e) {
+      var a = N[e.a], b = N[e.b];
+      if (!a || !b || a.level === b.level) return null;
+      var top = L[a.level].z > L[b.level].z ? a : b, bot = top === a ? b : a;
+      if (!draft) {
+        var dzTop = top.level === "L1" || /^P/.test(top.id) ? 1.1 : 0;
+        return { top: { x: top.x - 6, y: top.y, lv: top.level, dz: dzTop }, bot: { x: bot.x + 6, y: bot.y, lv: bot.level, dz: 0 }, topNode: top, botNode: bot };
+      }
+      // 新宿：2 点の中ほどに、実際の高さの差に見合う長さ（高さ × 1.6、最低 4 m）の斜面を置く。点とモデルの端は床の上の短い線でつなぐ
+      var dx = bot.x - top.x, dy = bot.y - top.y, d = Math.hypot(dx, dy), rise = Math.abs(L[top.level].z - L[bot.level].z);
+      var ux = d > 0.5 ? dx / d : 1, uy = d > 0.5 ? dy / d : 0, run = Math.max(d, rise * 1.6, 4);
+      var mx = (top.x + bot.x) / 2, my = (top.y + bot.y) / 2;
+      return { top: { x: mx - ux * run / 2, y: my - uy * run / 2, lv: top.level, dz: 0 }, bot: { x: mx + ux * run / 2, y: my + uy * run / 2, lv: bot.level, dz: 0 }, topNode: top, botNode: bot };
+    }
+
+    // ── 線分を作る。sc（ルートの階と範囲）があればその中だけ。形は spread で変わるので、変わるたびに作り直す
+    function build(sc) {
+      var S = [];   // [a, b, 強さ, 色, 種類の印, 階, 階2, 施設の種類]  種類の印：floor（床・水平）/ post（鉛直）/ stairs・escalator（斜め）/ elev / mark …
+      var tag = "floor", cur = { lv: null, lv2: null, kind: null };
+      var raw = false;   // 範囲の判定をしない線（床の板）
+      function inLv(lv) { return !sc || !lv || sc.levels[lv]; }
+      function seg(a, b, k, col) {
+        if (sc && !raw) {
+          if (!(inLv(cur.lv) || (cur.lv2 && sc.levels[cur.lv2]))) return;
+          if (!sc.near((a[0] + b[0]) / 2 + cx, (a[2] + b[2]) / 2 + cy, cur.lv, cur.lv2)) {
+            // 範囲の外：ルートの階のホームの縁だけを極薄で残す（それ以外は描かない）
+            if (tag === "floor" && cur.kind === "platform" && sc.levels[cur.lv]) S.push([a, b, k * 0.14, col || WHITE, tag, cur.lv, cur.lv2, cur.kind]);
+            return;
+          }
+        }
+        S.push([a, b, k, col || WHITE, tag, cur.lv, cur.lv2, cur.kind]);
+      }
       function rect(x0, y0, x1, y1, lv, dz, k) {
         var a = P(x0, y0, lv, dz), b = P(x1, y0, lv, dz), c = P(x1, y1, lv, dz), d = P(x0, y1, lv, dz);
         seg(a, b, k); seg(b, c, k); seg(c, d, k); seg(d, a, k);
@@ -76,12 +130,113 @@
         [[x0, y0], [x1, y0], [x1, y1], [x0, y1]].forEach(function (q) { seg(P(q[0], q[1], lv, 0), P(q[0], q[1], lv, h), kPost); });
         tag = t0;
       }
-      // 階ごとの床の板（その階の区画をすべて囲む水平の矩形。高さは階ごとに一定）
+      // 階ごとの床の板（その階の区画をすべて囲む水平の矩形）。ルートのない階は薄く
+      raw = true;
       st.levels.forEach(function (l) {
         cur = { lv: l.id, lv2: null, kind: null };
-        var b = slabOf(l.id); if (b) rect(b[0], b[1], b[2], b[3], l.id, 0, 0.22);
+        var b = slabs[l.id]; if (b) rect(b[0], b[1], b[2], b[3], l.id, 0, !sc || sc.levels[l.id] ? 0.22 : 0.08);
       });
-      if (draft) { buildDraft(S, seg, function (t) { tag = t; }, function (c) { cur = c; }); return S; }
+      raw = false;
+      // ── 階段・エスカレーター・エレベーターの 3D の枠線のモデル
+      function model(e) {
+        var ve = vEnds(e); if (!ve) return;
+        var kind = e.kind, col = e.guess ? AMBER : WHITE;
+        cur = { lv: ve.botNode.level, lv2: ve.topNode.level, kind: kind === "elevator" ? "elevator" : VERT[kind] ? kind : "net" };
+        if (kind === "elevator") {
+          // 縦の箱の枠：下の階の点の真上に、上の階の床より少し上まで
+          var b = ve.botNode, t = ve.topNode, hw = 1.1, h = zOf(t.level, 2.6) - zOf(b.level, 0);
+          var up = function (p, dz) { return [p[0], p[1] + dz, p[2]]; };
+          var q = [[b.x - hw, b.y - hw], [b.x + hw, b.y - hw], [b.x + hw, b.y + hw], [b.x - hw, b.y + hw]].map(function (c) { return P(c[0], c[1], b.level, 0); });
+          var t0 = tag; tag = "elev";
+          for (var i = 0; i < 4; i++) { seg(q[i], q[(i + 1) % 4], 0.8, col); seg(up(q[i], h), up(q[(i + 1) % 4], h), 0.8, col); }
+          tag = "post";
+          for (i = 0; i < 4; i++) seg(q[i], up(q[i], h), 0.75, col);
+          [b.level, t.level].forEach(function (lv) {   // 各階の乗り口（扉の縦の線 2 本）
+            var y0 = zOf(lv, 0), y1 = zOf(lv, 2.1);
+            [b.x - 0.45, b.x + 0.45].forEach(function (x) { seg([x - cx, y0, b.y - hw - cy], [x - cx, y1, b.y - hw - cy], 0.55, col); });
+          });
+          tag = t0;
+          return;
+        }
+        var A = P(ve.top.x, ve.top.y, ve.top.lv, ve.top.dz), B = P(ve.bot.x, ve.bot.y, ve.bot.lv, ve.bot.dz);
+        var ux = B[0] - A[0], uz = B[2] - A[2], ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+        var hw2 = 1.2, sx = -uz * hw2, sz = ux * hw2;
+        var off = function (p, s, upv) { return [p[0] + sx * s, p[1] + (upv || 0), p[2] + sz * s]; };
+        var lerp = function (p, r, f) { return [p[0] + (r[0] - p[0]) * f, p[1] + (r[1] - p[1]) * f, p[2] + (r[2] - p[2]) * f]; };
+        if (!VERT[kind]) {   // 坂・段差・種類不明の上下の移動：細い斜めの 2 本だけ
+          tag = "stairs"; seg(off(A, -0.5), off(B, -0.5), 0.35, col); seg(off(A, 0.5), off(B, 0.5), 0.35, col);
+          return;
+        }
+        tag = kind;
+        var RAIL = 1.0;
+        // ルートから離れたモデルは簡単な形（斜面の両側と上下の縁）だけにする＝近いものだけ詳しく
+        // （新宿でルートがない時＝駅全体を描く時も簡単な形。見本の駅はいつも詳しく）
+        var fine = !draft || !!sc && distRoute((ve.top.x + ve.bot.x) / 2, (ve.top.y + ve.bot.y) / 2, null) <= DETAIL_M;
+        if (!fine) {
+          [-1, 1].forEach(function (s) { seg(off(A, s), off(B, s), 0.6, col); });
+          seg(off(A, -1), off(A, 1), 0.45, col); seg(off(B, -1), off(B, 1), 0.45, col);
+        } else if (kind === "stairs") {
+          // 段のある斜面（両側の段の横顔・段の縁）と手すり
+          var n = 8;
+          [-1, 1].forEach(function (s) {
+            var prev = off(A, s);
+            for (var i2 = 1; i2 <= n; i2++) {
+              var p = off(lerp(A, B, i2 / n), s), mid = [p[0], prev[1], p[2]];
+              seg(prev, mid, 0.8, col); seg(mid, p, 0.8, col); prev = p;
+            }
+            seg(off(A, s, RAIL), off(B, s, RAIL), 0.5, col);
+            seg(off(A, s), off(A, s, RAIL), 0.4, col); seg(off(B, s), off(B, s, RAIL), 0.4, col);
+          });
+          for (var j = 0; j <= n; j++) { var c = lerp(A, B, j / n), c2 = j ? [c[0], lerp(A, B, (j - 1) / n)[1], c[2]] : c; seg(off(c2, -1), off(c2, 1), 0.45, col); }
+        } else {
+          // エスカレーター：上下の平らな乗り口→斜面、両側の手すりの帯、ステップの線
+          var lg = Math.min(1.6, ul * 0.2);
+          var A2 = [A[0] + ux * lg, A[1], A[2] + uz * lg], B2 = [B[0] - ux * lg, B[1], B[2] - uz * lg];
+          [-1, 1].forEach(function (s) {
+            seg(off(A, s), off(A2, s), 0.8, col); seg(off(A2, s), off(B2, s), 0.85, col); seg(off(B2, s), off(B, s), 0.8, col);
+            seg(off(A, s, RAIL), off(A2, s, RAIL), 0.5, col); seg(off(A2, s, RAIL), off(B2, s, RAIL), 0.55, col); seg(off(B2, s, RAIL), off(B, s, RAIL), 0.5, col);
+            seg(off(A, s), off(A, s, RAIL), 0.4, col); seg(off(B, s), off(B, s, RAIL), 0.4, col);
+          });
+          var m = 10;
+          for (var k2 = 0; k2 <= m; k2++) { var q2 = lerp(A2, B2, k2 / m); seg(off(q2, -0.85), off(q2, 0.85), 0.28, col); }
+          seg(off(A, -1), off(A, 1), 0.5, col); seg(off(B, -1), off(B, 1), 0.5, col);
+        }
+        // 新宿：点とモデルの端を、それぞれの階の床の上でつなぐ
+        if (draft) {
+          tag = "floor";
+          cur = { lv: ve.topNode.level, lv2: null, kind: "net" };
+          seg(P(ve.topNode.x, ve.topNode.y, ve.topNode.level, 0), P(ve.top.x, ve.top.y, ve.top.lv, 0), 0.3, col);
+          cur = { lv: ve.botNode.level, lv2: null, kind: "net" };
+          seg(P(ve.botNode.x, ve.botNode.y, ve.botNode.level, 0), P(ve.bot.x, ve.bot.y, ve.bot.lv, 0), 0.3, col);
+        }
+      }
+      if (draft) {
+        var lvs = st.levels.filter(function (l) { return inLv(l.id); }).map(function (l) { return l.id; });
+        lvs.forEach(function (lv) {
+          (areasBy[lv] || []).forEach(function (a) {
+            var plat = a.kind === "platform";
+            cur = { lv: a.level, lv2: null, kind: plat ? "platform" : null }; tag = "floor";
+            var poly = a.poly || [[a.rect[0], a.rect[1]], [a.rect[2], a.rect[1]], [a.rect[2], a.rect[3]], [a.rect[0], a.rect[3]]];
+            var k = plat ? 0.95 : 0.42;
+            for (var i = 0; i < poly.length; i++) { var q0 = poly[i], q1 = poly[(i + 1) % poly.length]; seg(P(q0[0], q0[1], a.level, 0), P(q1[0], q1[1], a.level, 0), k); }
+          });
+        });
+        var seen = {};
+        lvs.forEach(function (lv) {
+          (edgesBy[lv] || []).forEach(function (e) {
+            var a = N[e.a], b = N[e.b];
+            if (a.level === b.level) {
+              cur = { lv: a.level, lv2: null, kind: e.guess ? "guess" : "net" }; tag = "floor";
+              seg(P(a.x, a.y, a.level, 0), P(b.x, b.y, b.level, 0), e.guess ? 0.5 : 0.2, e.guess ? AMBER : WHITE);
+              return;
+            }
+            var key = e.a + ">" + e.b; if (seen[key]) return; seen[key] = 1;
+            model(e);
+          });
+        });
+        cur = { lv: null, lv2: null, kind: null };
+        return S;
+      }
       st.areas.forEach(function (a) {
         cur = { lv: a.level, lv2: null, kind: a.kind === "platform" ? "platform" : null };
         var r = a.rect;
@@ -96,9 +251,8 @@
         seg(P(t.from[0] + ax[0], t.from[1] + ax[1], t.level, -0.2), P(t.to[0] + ax[0], t.to[1] + ax[1], t.level, -0.2), 0.32);
       });
       tag = "post";
-      // 号車の区切り（ホームの縁に短い縦線）
-      st.platforms.forEach(function (p) {
-        if (!GT.stationGraph.hasDoors(p)) return;   // 号車が不明なホームには区切りを描かない
+      st.platforms.forEach(function (p) {   // 号車の区切り（ホームの縁に短い縦線）
+        if (!GT.stationGraph.hasDoors(p)) return;
         for (var c = 1; c <= p.cars + 1; c++) {
           var s = p.car1Front + p.dir * p.carLen * (c - 1);
           var e1 = p.axis === "x" ? [s, p.center - 4.6] : [p.center - 5.6, s], e2 = p.axis === "x" ? [s, p.center + 4.6] : [p.center + 5.6, s];
@@ -106,53 +260,20 @@
           seg(P(e2[0], e2[1], p.level, 1.1), P(e2[0], e2[1], p.level, 1.9), 0.3);
         }
       });
-      // 上下の移動の設備（エレベーターは鉛直、階段・エスカレーターだけが斜め）
-      st.edges.forEach(function (e) {
-        var a = N[e.a], b = N[e.b];
-        if (e.kind !== "stairs" && e.kind !== "escalator" && e.kind !== "elevator") return;
-        var top = L[a.level].z > L[b.level].z ? a : b, bot = top === a ? b : a;
-        tag = e.kind === "elevator" ? "post" : e.kind;
-        var dzTop = top.level === "L1" || /^P/.test(top.id) ? 1.1 : 0;
-        if (e.kind === "elevator") {
-          var h0 = 0, h1 = zOf(top.level, dzTop + 2.8) - zOf(bot.level, 0);
-          box(bot.x - 1.3, bot.y - 1.3, bot.x + 1.3, bot.y + 1.3, bot.level, h1 - h0, 0.8, 0.8, 0.8);
-          return;
-        }
-        var A = function (dy) { return P(top.x - 6, top.y + dy, top.level, dzTop); }, B = function (dy) { return P(bot.x + 6, bot.y + dy, bot.level, 0); };
-        [-1.1, 1.1].forEach(function (dy) {
-          var a3 = A(dy), b3 = B(dy);
-          if (e.kind === "stairs") {
-            var n = 9, prev = a3;
-            for (var i = 1; i <= n; i++) {
-              var f = i / n, x = a3[0] + (b3[0] - a3[0]) * f, y = a3[1] + (b3[1] - a3[1]) * f, z = a3[2] + (b3[2] - a3[2]) * f;
-              var mid = [x, prev[1], z]; seg(prev, mid, 0.85); seg(mid, [x, y, z], 0.85); prev = [x, y, z];
-            }
-          } else {
-            seg(a3, b3, 0.9);
-            seg([a3[0], a3[1] + 1, a3[2]], [b3[0], b3[1] + 1, b3[2]], 0.45);   // 手すり
-          }
-        });
-        var a1 = A(-1.1), a2 = A(1.1), b1 = B(-1.1), b2 = B(1.1);
-        seg(a1, a2, 0.7); seg(b1, b2, 0.7);
-      });
+      st.edges.forEach(function (e) { if (VERT[e.kind] || e.kind === "elevator") model(e); });
+      cur = { lv: null, lv2: null, kind: null };
       tag = "mark";
-      // 改札（通路を横切る低い柱の列）と出口（門の枠）
-      st.nodes.forEach(function (n) {
+      st.nodes.forEach(function (n) {   // 改札（通路を横切る低い柱の列）と出口（門の枠）
         if (n.kind === "gate") {
           var across = n.id === "GT" ? [0, 1] : [1, 0];
-          for (var i = -2; i <= 2; i++) {
-            var x = n.x + across[0] * i * 1.4, y = n.y + across[1] * i * 1.4;
-            seg(P(x, y, n.level, 0), P(x, y, n.level, 1.1), 0.9);
-          }
+          for (var i = -2; i <= 2; i++) { var x = n.x + across[0] * i * 1.4, y = n.y + across[1] * i * 1.4; seg(P(x, y, n.level, 0), P(x, y, n.level, 1.1), 0.9); }
           seg(P(n.x - across[0] * 2.8, n.y - across[1] * 2.8, n.level, 1.1), P(n.x + across[0] * 2.8, n.y + across[1] * 2.8, n.level, 1.1), 0.5);
         } else if (n.kind === "exit") {
           var a = P(n.x - 2, n.y, n.level, 0), b = P(n.x - 2, n.y, n.level, 2.8), c = P(n.x + 2, n.y, n.level, 2.8), d = P(n.x + 2, n.y, n.level, 0);
           seg(a, b, 0.9); seg(b, c, 0.9); seg(c, d, 0.9);
         }
       });
-      // 選んだ号車（枠）とドア（縦の線）、乗換先
-      tag = "mark";
-      if (sel) {
+      if (sel) {   // 選んだ号車（枠）とドア（縦の線）
         var p = GT.stationGraph.platformOf(st, sel.platform);
         var cr = GT.stationGraph.carRange(p, sel.car);
         var w = p.axis === "x" ? [cr[0], p.center - 4.2, cr[1], p.center + 4.2] : [p.center - 5.2, cr[0], p.center + 5.2, cr[1]];
@@ -163,109 +284,124 @@
       }
       return S;
     }
-    // ── 新宿の下書き：床は水平の多角形、斜めは別の階を結ぶ階段・エスカレーターの辺だけ、エレベーターは鉛直の柱
-    function buildDraft(S, seg, setTag, setCur) {
-      st.areas.forEach(function (a) {
-        var plat = a.kind === "platform";
-        setCur({ lv: a.level, lv2: null, kind: plat ? "platform" : null });
-        setTag("floor");
-        var poly = a.poly || [[a.rect[0], a.rect[1]], [a.rect[2], a.rect[1]], [a.rect[2], a.rect[3]], [a.rect[0], a.rect[3]]];
-        var k = plat ? 0.95 : 0.42;
-        for (var i = 0; i < poly.length; i++) {
-          var q0 = poly[i], q1 = poly[(i + 1) % poly.length];
-          seg(P(q0[0], q0[1], a.level, 0), P(q1[0], q1[1], a.level, 0), k);
-        }
-      });
-      // 歩行ネットワーク（同じ階の辺）：薄い線。強調した階でだけ見える強さにしてある
-      st.edges.forEach(function (e) {
-        var a = N[e.a], b = N[e.b]; if (!a || !b) return;
-        if (a.level === b.level) {
-          setCur({ lv: a.level, lv2: null, kind: e.guess ? "guess" : "net" }); setTag("floor");
-          seg(P(a.x, a.y, a.level, 0), P(b.x, b.y, b.level, 0), e.guess ? 0.5 : 0.2, e.guess ? AMBER : WHITE);
-          return;
-        }
-        // 別の階を結ぶ辺。エレベーターは鉛直の柱（下の点の真上へ）、階段・エスカレーターは斜め、ほかの種類（坂・段差・不明）は細い斜め
-        var top = L[a.level].z > L[b.level].z ? a : b, bot = top === a ? b : a;
-        var kind = e.kind === "elevator" || e.kind === "stairs" || e.kind === "escalator" ? e.kind : "net";
-        setCur({ lv: bot.level, lv2: top.level, kind: kind });
-        if (e.kind === "elevator") {
-          setTag("post");
-          seg(P(bot.x, bot.y, bot.level, 0), P(bot.x, bot.y, top.level, 0), 0.75, e.guess ? AMBER : WHITE);
-          return;
-        }
-        setTag(e.kind === "stairs" || e.kind === "escalator" ? e.kind : "stairs");
-        seg(P(top.x, top.y, top.level, 0), P(bot.x, bot.y, bot.level, 0), e.kind === "escalator" || e.kind === "stairs" ? 0.8 : 0.35, e.guess ? AMBER : WHITE);
-      });
-      setCur({ lv: null, lv2: null, kind: null });
-    }
-    // 施設の記号（画面上で一定の大きさに描く枠線の記号。3D の点に固定）
-    var GLYPH_KINDS = { toilet: 1, stairs: 1, escalator: 1, elevator: 1, exit: 1, gate: 1 };
-    if (draft) st.nodes.forEach(function (n) { if (GLYPH_KINDS[n.kind]) glyphs.push({ x: n.x, y: n.y, level: n.level, kind: n.kind, ground: !!n.ground, id: n.id }); });
-    // 記号の形（単位は記号の半径 1。y は下向き＝画面の向き）。色はどれも白い光で、線の形だけで種類を分ける
+
+    // 施設の記号（画面の下の列に並べる枠線の記号）。階段・エスカレーターは記号にせず 3D のモデルで描く
+    var GLYPH_KINDS = { toilet: 1, elevator: 1, exit: 1, gate: 1 };
+    st.nodes.forEach(function (n) { if (GLYPH_KINDS[n.kind]) glyphs.push({ x: n.x, y: n.y, level: n.level, kind: n.kind, ground: !!n.ground, id: n.id }); });
     var SHAPE = {
-      toilet: (function () { var a = []; for (var i = 0; i < 8; i++) { var t0 = i / 8 * Math.PI * 2, t1 = (i + 1) / 8 * Math.PI * 2; a.push([Math.cos(t0), Math.sin(t0), Math.cos(t1), Math.sin(t1)]); } a.push([0, -0.45, 0, 0.45]); return a; })(),   // 円＋縦の棒
-      stairs: [[-1, 1, -1, 0.33], [-1, 0.33, -0.33, 0.33], [-0.33, 0.33, -0.33, -0.33], [-0.33, -0.33, 0.33, -0.33], [0.33, -0.33, 0.33, -1], [0.33, -1, 1, -1]],   // 段の横顔
-      escalator: [[-1, 0.7, -0.45, 0.7], [-0.45, 0.7, 0.45, -0.7], [0.45, -0.7, 1, -0.7], [-1, 1, 1, 1]],   // 下の平ら→斜め→上の平ら（床の線つき）
-      elevator: [[-0.7, -1, 0.7, -1], [0.7, -1, 0.7, 1], [0.7, 1, -0.7, 1], [-0.7, 1, -0.7, -1], [0, -0.6, -0.3, -0.25], [0, -0.6, 0.3, -0.25], [0, 0.6, -0.3, 0.25], [0, 0.6, 0.3, 0.25]],   // 箱＋上下の矢
-      gate: [[-1, 1, -1, -0.5], [0, 1, 0, -0.5], [1, 1, 1, -0.5], [-1, -0.5, 1, -0.5]],   // 柱 3 本＋上の横棒
-      exit: [[-0.7, 1, -0.7, -0.5], [-0.7, -0.5, 0.7, -0.5], [0.7, -0.5, 0.7, 1]],   // 門の枠
-      exitGround: [[-0.7, 1, -0.7, -0.4], [0.7, -0.4, 0.7, 1], [-1, -0.4, 0, -1.1], [0, -1.1, 1, -0.4]]   // 門の枠＋屋根（地上の出口）
+      toilet: (function () { var a = []; for (var i = 0; i < 8; i++) { var t0 = i / 8 * Math.PI * 2, t1 = (i + 1) / 8 * Math.PI * 2; a.push([Math.cos(t0), Math.sin(t0), Math.cos(t1), Math.sin(t1)]); } a.push([0, -0.45, 0, 0.45]); return a; })(),
+      elevator: [[-0.7, -1, 0.7, -1], [0.7, -1, 0.7, 1], [0.7, 1, -0.7, 1], [-0.7, 1, -0.7, -1], [0, -0.6, -0.3, -0.25], [0, -0.6, 0.3, -0.25], [0, 0.6, -0.3, 0.25], [0, 0.6, 0.3, 0.25]],
+      gate: [[-1, 1, -1, -0.5], [0, 1, 0, -0.5], [1, 1, 1, -0.5], [-1, -0.5, 1, -0.5]],
+      exit: [[-0.7, 1, -0.7, -0.5], [-0.7, -0.5, 0.7, -0.5], [0.7, -0.5, 0.7, 1]],
+      exitGround: [[-0.7, 1, -0.7, -0.4], [0.7, -0.4, 0.7, 1], [-1, -0.4, 0, -1.1], [0, -1.1, 1, -0.4]]
     };
-    var segs = build();
 
-    // ── 経路の点列（3D）
-    var routeGuess = [];
-    function routePoints(r) {
-      routeGuess = [];
-      if (!r || !r.ok || !r.path.length) return null;
-      if (draft) {
-        // 下書き：点の位置をそのまま結ぶ（上下の移動は別の階の点どうしの斜め・鉛直になる）。推測の接続の区間を覚えておく
-        var out = [], gs = {};
-        r.steps.forEach(function (s) { if (s.guess) gs[s.a + ">" + s.b] = 1; });
-        var ids = r.path.filter(function (id) { return N[id]; });
-        ids.forEach(function (id, i) {
-          var n = N[id]; out.push(P(n.x, n.y, n.level, 0.6));
-          if (i) routeGuess.push(!!(gs[ids[i - 1] + ">" + id] || gs[id + ">" + ids[i - 1]]));
-        });
-        return out.length >= 2 ? out : (out.length ? [out[0], out[0]] : null);
+    // ── ルート：点列（3D）、区間、範囲
+    var routeXY = [], ptSec = [];   // routeXY：[{ax,ay,bx,by,lv}] 同じ階の線分（範囲の判定用）／ptSec：点ごとの区間の番号
+    function nodePt(id) {
+      if (id === "__door" && sel) {
+        var p = GT.stationGraph.platformOf(st, sel.platform), d = GT.stationGraph.doorXY(st, p, sel.car, sel.door);
+        return { x: d.x, y: d.y, lv: p.level, dz: 1.4 };
       }
-      var pts = [];
-      var edgeKind = {};
-      r.steps.forEach(function (s) { edgeKind[s.a + ">" + s.b] = s.kind; });
-      r.path.forEach(function (id, i) {
-        if (id === "__door") {
-          var p = GT.stationGraph.platformOf(st, sel.platform), d = GT.stationGraph.doorXY(st, p, sel.car, sel.door);
-          pts.push(P(d.x, d.y, p.level, 1.4));
-          return;
+      var n = N[id]; if (!n) return null;
+      return { x: n.x, y: n.y, lv: n.level, dz: draft ? 0.6 : /^P\d/.test(id) ? 1.4 : 0.4 };
+    }
+    function buildRoute(r) {
+      routeMeta = []; routeXY = []; secs = []; ptSec = [];
+      if (!r || !r.ok || !r.steps || !r.steps.length) {
+        if (r && r.ok && r.path && r.path.length === 1 && N[r.path[0]]) {
+          var w0 = nodePt(r.path[0]); routeXY.push({ ax: w0.x, ay: w0.y, bx: w0.x, by: w0.y, lv: w0.lv });
+          return [P(w0.x, w0.y, w0.lv, w0.dz), P(w0.x, w0.y, w0.lv, w0.dz)];
         }
-        var n = N[id], prevId = r.path[i - 1], nextId = r.path[i + 1];
-        var k = (prevId && edgeKind[prevId + ">" + id]) || (nextId && edgeKind[id + ">" + nextId]);
-        var onPlat = /^P\d/.test(id);
-        var dz = onPlat ? 1.4 : 0.4;
-        var x = n.x;
-        if (n.kind === "stairs" || n.kind === "escalator") {
-          var isTop = st.edges.some(function (e) { return (e.a === id || e.b === id) && (e.kind === "stairs" || e.kind === "escalator") && L[N[e.a === id ? e.b : e.a].level].z < L[n.level].z; });
-          x = isTop ? n.x - 6 : n.x + 6;
-          // 歩いて来る側は設備の点そのもの、上下の移動はずらした端から端へ
-          if (k !== "stairs" && k !== "escalator") { pts.push(P(n.x, n.y, n.level, dz)); }
-          pts.push(P(x, n.y, n.level, dz));
-          return;
+        return null;
+      }
+      secs = GT.stationGraph.sections(r);
+      var secOf = []; secs.forEach(function (s, k) { for (var i = s.i0; i <= s.i1; i++) secOf[i] = k; });
+      var pts = [], wpts = [];
+      function push(w, g, sec) { if (pts.length) routeMeta.push({ g: g, sec: sec }); pts.push(P(w.x, w.y, w.lv, w.dz)); wpts.push(w); ptSec.push(sec); }
+      r.steps.forEach(function (s, i) {
+        var a = nodePt(s.a), b = nodePt(s.b), sec = secOf[i];
+        if (!b) return;
+        if (!pts.length) { if (a) push(a, false, sec); else { push(b, false, sec); return; } }
+        var na = N[s.a], nb = N[s.b];
+        var cross = na && nb && na.level !== nb.level;
+        var ve = cross && VERT[s.kind] ? vEnds({ a: s.a, b: s.b, kind: s.kind }) : null;
+        if (ve) {   // 階段・エスカレーターはモデルの端から端へ
+          var aTop = ve.topNode.id === s.a, lift = draft ? 0.6 : 0.4;
+          var e1 = aTop ? ve.top : ve.bot, e2 = aTop ? ve.bot : ve.top;
+          push({ x: e1.x, y: e1.y, lv: e1.lv, dz: e1.dz + lift }, s.guess, sec);
+          push({ x: e2.x, y: e2.y, lv: e2.lv, dz: e2.dz + lift }, s.guess, sec);
+        } else if (cross && s.kind === "elevator") {   // エレベーターは箱の中を鉛直に
+          var bn = L[na.level].z < L[nb.level].z ? na : nb;
+          push({ x: bn.x, y: bn.y, lv: na.level, dz: a.dz }, s.guess, sec);
+          push({ x: bn.x, y: bn.y, lv: nb.level, dz: b.dz }, s.guess, sec);
         }
-        pts.push(P(x, n.y, n.level, dz));
+        push(b, s.guess, sec);
       });
-      return pts;
+      for (var i = 1; i < wpts.length; i++) {
+        var p0 = wpts[i - 1], p1 = wpts[i];
+        if (p0.lv === p1.lv) routeXY.push({ ax: p0.x, ay: p0.y, bx: p1.x, by: p1.y, lv: p0.lv });
+        else { routeXY.push({ ax: p0.x, ay: p0.y, bx: p0.x, by: p0.y, lv: p0.lv }); routeXY.push({ ax: p1.x, ay: p1.y, bx: p1.x, by: p1.y, lv: p1.lv }); }
+      }
+      return pts.length >= 2 ? pts : pts.length ? [pts[0], pts[0]] : null;
+    }
+    function distRoute(x, y, lv) {
+      var best = 1e9;
+      for (var i = 0; i < routeXY.length; i++) {
+        var s = routeXY[i]; if (lv && s.lv !== lv) continue;
+        var d = dseg(x, y, s.ax, s.ay, s.bx, s.by); if (d < best) best = d;
+      }
+      return best;
+    }
+    function makeScope() {
+      if (!draft || !routeXY.length) return null;   // 見本の駅は小さいので全部描く。ルートがない時は全体
+      var lv = {}; routeXY.forEach(function (s) { lv[s.lv] = 1; });
+      // 範囲の判定を速くするため、ルートの線分を囲む箱で先にふるい落とす
+      var bx0 = 1e9, by0 = 1e9, bx1 = -1e9, by1 = -1e9;
+      routeXY.forEach(function (s) { bx0 = Math.min(bx0, s.ax, s.bx); bx1 = Math.max(bx1, s.ax, s.bx); by0 = Math.min(by0, s.ay, s.by); by1 = Math.max(by1, s.ay, s.by); });
+      return {
+        levels: lv,
+        near: function (x, y, l1, l2) {
+          if (x < bx0 - CORR || x > bx1 + CORR || y < by0 - CORR || y > by1 + CORR) return false;
+          var d = distRoute(x, y, l1 && lv[l1] ? l1 : null);
+          if (l2 && lv[l2]) d = Math.min(d, distRoute(x, y, l2));
+          return d <= CORR;
+        }
+      };
+    }
+    // ルートの近くの施設：同じ階で距離 GLYPH_R 以内・近い順・近いものはまとめて件数・上限 GLYPH_MAX（行き先のトイレは必ず入れる）
+    function makeNear(r) {
+      near = []; nearCount = 0;
+      if (!routeXY.length) return;
+      var lvs = {}; routeXY.forEach(function (s) { lvs[s.lv] = 1; });
+      var cand = [];
+      glyphs.forEach(function (g) {
+        if (!lvs[g.level]) return;
+        var d = distRoute(g.x, g.y, g.level);
+        if (d <= GLYPH_R) cand.push({ g: g, d: d, goal: r && r.goal === g.id ? 1 : 0 });
+      });
+      nearCount = cand.length;
+      cand.sort(function (a, b) { return (b.goal - a.goal) || (a.d - b.d); });
+      cand.forEach(function (c) {
+        var g = c.g;
+        for (var i = 0; i < near.length; i++) {
+          var m = near[i];
+          if (m.kind === g.kind && m.level === g.level && Math.hypot(m.x - g.x, m.y - g.y) <= MERGE_M) { m.n++; return; }
+        }
+        if (near.length < GLYPH_MAX) near.push({ x: g.x, y: g.y, level: g.level, kind: g.kind, ground: g.ground, id: g.id, n: 1, d: c.d, goal: !!c.goal });
+      });
     }
 
-    // ── 投影
+    var segs = [];
+    function rebuild() { scope = makeScope(); segs = build(scope); }
+
+    // ── 投影（ほぼ正投影：画角 4° で遠くから見る。拡大はレンズの倍率で行うので、寄ってもパースは強くならない）
     var fit = { k: 1, ox: 0, oy: 0 };
-    // 不具合の元：以前は画角 40° でカメラが駅の大きさ R の約 2.7 倍の距離にあり、パースが強すぎた。
-    // 細長いホーム（205m×10m）の水平な矩形が手前ほど大きく広がって、どの床も「坂」に見えていた。
-    // いまは画角を狭くして遠くから見る（正投影に近い。奥行きの差による大きさの差は約 ±8%）。
     var FOV = 4 * DEG;
-    function fovF() { return fit.k * H / (2 * Math.tan(FOV / 2)); }
-    function camDist() { var asp = W / Math.max(1, H); return (R * 0.98 / Math.tan(FOV / 2)) / Math.min(1, asp * 1.15) / cam.zoom; }
+    function fovF() { return fit.k * cam.zoom * H / (2 * Math.tan(FOV / 2)); }
+    function camDist() { var asp = W / Math.max(1, H); return (R * 0.98 / Math.tan(FOV / 2)) / Math.min(1, asp * 1.15); }
     function proj(p, D, f) {
-      var x = p[0] - cam.tx, y = p[1], z = p[2] - cam.tz;
+      var x = p[0] - cam.tx, y = p[1] - cam.ty, z = p[2] - cam.tz;
       var cy_ = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
       var x1 = x * cy_ - z * sy, z1 = x * sy + z * cy_;
       var y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
@@ -273,36 +409,74 @@
       if (d < 1) return null;
       return [W / 2 + fit.ox + x1 * f / d, H / 2 + fit.oy - y2 * f / d, d];
     }
-
-    // 全体が画面に収まるよう、倍率と中心のずれを決める（起動・大きさの変化・視点を戻す時だけ。回している間は変えない）
+    var PAD = { l: 104, r: 58, t: 18, b: 64 };   // 左は階の名前の列、右は道具のボタン、下は施設の記号の列
+    // 全体が画面に収まるよう、倍率と中心のずれを決める（ルートがない時）
     function fitView() {
-      fit = { k: 1, ox: 0, oy: 0 };
+      fit = { k: 1, ox: 0, oy: 0 }; cam.tx = cam.ty = cam.tz = 0; cam.zoom = 1; anim = null;
       var D = camDist(), f = fovF(), x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
       segs.forEach(function (s) { [s[0], s[1]].forEach(function (p) { var q = proj(p, D, f); if (!q) return; x0 = Math.min(x0, q[0]); x1 = Math.max(x1, q[0]); y0 = Math.min(y0, q[1]); y1 = Math.max(y1, q[1]); }); });
       if (x1 <= x0) return;
-      var padL = 112, padX = 20, padTop = 20, padBot = 30;   // 左は階の名前の列のぶん空ける
+      var padL = 112, padX = 20, padTop = 20, padBot = 30;
       var k = Math.min((W - padL - padX) / (x1 - x0), (H - padTop - padBot) / (y1 - y0));
       fit.k = k;
       fit.ox = -((x0 + x1) / 2 - (W + padL - padX) / 2) * k;
       fit.oy = -((y0 + y1) / 2 - (H + padTop - padBot) / 2) * k;
+    }
+    // 点の集まりにカメラを合わせる（中心へ寄せ、画面に収まるいちばん大きな倍率）。minHalf：短い区間でも寄りすぎない余白（m）
+    function camFor(points, minHalf) {
+      var x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, z0 = 1e9, z1 = -1e9;
+      points.forEach(function (p) { x0 = Math.min(x0, p[0]); x1 = Math.max(x1, p[0]); y0 = Math.min(y0, p[1]); y1 = Math.max(y1, p[1]); z0 = Math.min(z0, p[2]); z1 = Math.max(z1, p[2]); });
+      var c = [(x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2], h = minHalf || 6;
+      var bx = [];
+      [x0 - h, x1 + h].forEach(function (x) { [y0, y1].forEach(function (y) { [z0 - h, z1 + h].forEach(function (z) { bx.push([x, y, z]); }); }); });
+      var keep = { tx: cam.tx, ty: cam.ty, tz: cam.tz, zoom: cam.zoom, f: fit };
+      cam.tx = c[0]; cam.ty = c[1]; cam.tz = c[2]; cam.zoom = 1; fit = { k: 1, ox: 0, oy: 0 };
+      var D = camDist(), f = fovF(), sx0 = 1e9, sx1 = -1e9, sy0 = 1e9, sy1 = -1e9;
+      bx.forEach(function (p) { var q = proj(p, D, f); if (!q) return; sx0 = Math.min(sx0, q[0]); sx1 = Math.max(sx1, q[0]); sy0 = Math.min(sy0, q[1]); sy1 = Math.max(sy1, q[1]); });
+      var aw = Math.max(40, W - PAD.l - PAD.r), ah = Math.max(40, H - PAD.t - PAD.b);
+      var z = Math.max(ZMIN, Math.min(ZMAX, Math.min(aw / Math.max(1, sx1 - sx0), ah / Math.max(1, sy1 - sy0))));
+      var out = { tx: c[0], ty: c[1], tz: c[2], zoom: z,
+        ox: -((sx0 + sx1) / 2 - W / 2) * z + (PAD.l - PAD.r) / 2, oy: -((sy0 + sy1) / 2 - H / 2) * z + (PAD.t - PAD.b) / 2 };
+      cam.tx = keep.tx; cam.ty = keep.ty; cam.tz = keep.tz; cam.zoom = keep.zoom; fit = keep.f;
+      return out;
+    }
+    function goCam(to, instant) {
+      // 倍率は fit.k に畳み込んでから動かす（全体表示からの移り変わりも滑らかに）
+      cam.zoom *= fit.k; fit = { k: 1, ox: fit.ox, oy: fit.oy };
+      if (instant || reduced() || opts.instant) { anim = null; cam.tx = to.tx; cam.ty = to.ty; cam.tz = to.tz; cam.zoom = to.zoom; fit.ox = to.ox; fit.oy = to.oy; kick(); return; }
+      anim = { t0: performance.now(), dur: 480, a: { tx: cam.tx, ty: cam.ty, tz: cam.tz, zoom: cam.zoom, ox: fit.ox, oy: fit.oy }, b: to };
+      kick();
+    }
+    function sectionPoints(i) {
+      if (!route) return [];
+      if (i < 0) return route;
+      var out = [];
+      routeMeta.forEach(function (m, j) { if (m.sec === i) { out.push(route[j]); out.push(route[j + 1]); } });
+      ptSec.forEach(function (s, j) { if (s === i && route[j]) out.push(route[j]); });   // 線のない区間（ホームの上の始まりなど）は点だけ
+      return out.length ? out : route;
+    }
+    function fitRoute(instant) {
+      if (!route) return false;
+      fitted = camFor(sectionPoints(curSec), curSec < 0 ? 10 : 7);
+      goCam(fitted, instant);
+      return true;
     }
     function resize() {
       var r = canvas.getBoundingClientRect();
       dpr = Math.min(2, window.devicePixelRatio || 1);
       W = Math.max(1, r.width); H = Math.max(1, r.height);
       canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
-      fitView(); kick();
+      if (route) fitRoute(true); else fitView();
+      kick();
     }
 
-    // ── 描画
-    // 1 コマに 1 回だけ全部の端点を投影して pr に入れ、にじみ・芯の 3 回の描き分けはその結果を使い回す。
-    // 両端が同じ側で画面の外にある線は省く（視錐台の外）。強さ 0 の線（隠した種類・薄くした階の薄い線）も省く。
+    // ── 描画。1 コマに 1 回だけ全部の端点を投影し、にじみ・芯の描き分けはその結果を使い回す。視錐台の外の線は省く
     var pr = new Float32Array(0), wv = new Float32Array(0);
     function levelMul(s) {
       if (!focus) return 1;
       return s[5] === focus || s[6] === focus || s[5] == null ? 1 : 0.13;
     }
-    function projectAll(D, f, near, far) {
+    function projectAll(D, f, near_, far) {
       var n = segs.length;
       if (pr.length < n * 4) { pr = new Float32Array(n * 4); wv = new Float32Array(n); }
       var cy_ = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
@@ -313,7 +487,7 @@
         var w = s[2] * levelMul(s);
         var dsum = 0, ok = true;
         for (var e = 0; e < 2; e++) {
-          var p = s[e], x = p[0] - cam.tx, y = p[1], z = p[2] - cam.tz;
+          var p = s[e], x = p[0] - cam.tx, y = p[1] - cam.ty, z = p[2] - cam.tz;
           var x1 = x * cy_ - z * sy, z1 = x * sy + z * cy_;
           var y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp, d = D + z2;
           if (d < 1) { ok = false; break; }
@@ -322,15 +496,15 @@
         if (!ok) { wv[i] = 0; continue; }
         var ax = pr[i * 4], ay = pr[i * 4 + 1], bx = pr[i * 4 + 2], by = pr[i * 4 + 3];
         if ((ax < -m && bx < -m) || (ax > W + m && bx > W + m) || (ay < -m && by < -m) || (ay > H + m && by > H + m)) { wv[i] = 0; culled++; continue; }
-        wv[i] = w * (1 - 0.74 * smooth(near, far, dsum / 2));
+        wv[i] = w * (1 - 0.74 * smooth(near_, far, dsum / 2));
         drawn++;
       }
       perf.drawn = drawn; perf.culled = culled;
     }
-    function strokeBuckets(list, D, f, near, far, col, width, mult) {
+    function strokeBuckets(col, width, mult) {
       var B = {};
-      for (var i = 0; i < list.length; i++) {
-        var s = list[i]; if (s[3] !== col || wv[i] <= 0) continue;
+      for (var i = 0; i < segs.length; i++) {
+        if (wv[i] <= 0 || segs[i][3] !== col) continue;
         var k = Math.round(Math.min(1, wv[i] * mult) * 12);
         if (k <= 0) continue;
         (B[k] = B[k] || []).push(i);
@@ -344,30 +518,47 @@
         ctx.stroke();
       });
     }
-    // 施設の記号：種類ごと・強さごとに 1 本のパスにまとめて描く
+    // 施設の記号：ルートの近くの分だけ。その場所から画面の下の列へ引き出し線を出して並べる（x の順・間隔をあけて重ならない）
+    var lastIcons = [];
     function drawGlyphs(D, f) {
-      if (!glyphs.length) return;
-      var pxPerM = f / D, r = Math.max(2.2, Math.min(7, 3.2 * pxPerM));
-      var far = Math.min(1, Math.max(0.35, (r - 2.2) / 3));   // 引いて見ている時（記号が小さい時）は暗くして、白い塊にならないようにする
-      var B = {};
-      for (var i = 0; i < glyphs.length; i++) {
-        var g = glyphs[i]; if (hidden[g.kind]) continue;
-        var dim = focus && g.level !== focus;
+      lastIcons = [];
+      var list = [];
+      near.forEach(function (g) {
+        if (hidden[g.kind]) return;
         var q = proj(P(g.x, g.y, g.level, 0), D, f);
-        if (!q || q[0] < -10 || q[0] > W + 10 || q[1] < -10 || q[1] > H + 10) continue;
-        var key = (dim ? "d" : "b") + (g.kind === "exit" && g.ground ? "exitGround" : g.kind);
-        (B[key] = B[key] || []).push(q[0], q[1]);
+        if (!q || q[0] < 0 || q[0] > W || q[1] < 0 || q[1] > H - PAD.b + 10) return;
+        list.push({ g: g, ax: q[0], ay: q[1], x: q[0] });
+      });
+      if (!list.length) return;
+      list.sort(function (a, b) { return a.ax - b.ax; });
+      var r = 7, gap = 32, y = H - 24, lo = 20, hi = W - 20;
+      if (gap * (list.length - 1) > hi - lo) gap = (hi - lo) / Math.max(1, list.length - 1);
+      for (var it = 0; it < 4; it++) {
+        for (var i = 1; i < list.length; i++) if (list[i].x < list[i - 1].x + gap) list[i].x = list[i - 1].x + gap;
+        if (list[list.length - 1].x > hi) list[list.length - 1].x = hi;
+        for (i = list.length - 2; i >= 0; i--) if (list[i].x > list[i + 1].x - gap) list[i].x = list[i + 1].x - gap;
+        if (list[0].x < lo) list[0].x = lo;
       }
-      Object.keys(B).forEach(function (key) {
-        var dim = key[0] === "d", sh = SHAPE[key.slice(1)], arr = B[key], rr = dim ? r * 0.7 : r;
-        [[3, dim ? 0.05 : 0.16], [1.1, dim ? 0.22 : 0.95]].forEach(function (pass) {
-          ctx.lineWidth = pass[0]; ctx.strokeStyle = "rgba(" + WHITE + "," + (pass[1] * far).toFixed(3) + ")";
+      list.forEach(function (o) {
+        var g = o.g, bx = o.x, col = g.goal ? ACC : WHITE;
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(" + col + ",.45)";   // 引き出し線（場所の小さな丸 → 記号の枠の上）
+        ctx.beginPath(); ctx.moveTo(o.ax, o.ay); ctx.lineTo(bx, y - 13); ctx.stroke();
+        ctx.beginPath(); ctx.arc(o.ax, o.ay, 2.2, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeStyle = "rgba(" + col + ",.6)";
+        ctx.beginPath(); ctx.rect(bx - 12, y - 12, 24, 24); ctx.stroke();
+        var sh = SHAPE[g.kind === "exit" && g.ground ? "exitGround" : g.kind];
+        [[2.6, 0.16], [1.1, 0.95]].forEach(function (pass) {
+          ctx.lineWidth = pass[0]; ctx.strokeStyle = "rgba(" + col + "," + pass[1] + ")";
           ctx.beginPath();
-          for (var j = 0; j < arr.length; j += 2) for (var t = 0; t < sh.length; t++) {
-            var l = sh[t]; ctx.moveTo(arr[j] + l[0] * rr, arr[j + 1] + l[1] * rr - rr * 1.3); ctx.lineTo(arr[j] + l[2] * rr, arr[j + 1] + l[3] * rr - rr * 1.3);
-          }
+          for (var t = 0; t < sh.length; t++) { var l = sh[t]; ctx.moveTo(bx + l[0] * r, y + l[1] * r); ctx.lineTo(bx + l[2] * r, y + l[3] * r); }
           ctx.stroke();
         });
+        if (g.n > 1) {   // まとめた件数
+          ctx.fillStyle = "rgba(" + WHITE + ",.9)"; ctx.font = "10px ui-monospace, Menlo, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+          ctx.fillText(String(g.n), bx + 14, y - 10);
+        }
+        lastIcons.push({ kind: g.kind, n: g.n, box: [bx - 12, y - 12, bx + 12, y + 12], anchor: [o.ax, o.ay] });
       });
     }
 
@@ -376,25 +567,24 @@
       ctx.globalCompositeOperation = "source-over";
       ctx.fillStyle = "#020306";
       ctx.fillRect(0, 0, W, H);
-      var D = camDist(), f = fovF(), near = D - R * 0.7, far = D + R * 1.0;   // 奥行きの薄れ（D に対する相対値なので、遠くから見ても同じ効き）
+      var D = camDist(), f = fovF(), near_ = D - R * 0.7, far = D + R * 1.0;
       ctx.globalCompositeOperation = "lighter";
       ctx.lineCap = "round"; ctx.lineJoin = "round";
-      // 光のにじみ（太く淡く）→ 芯（細く強く）。線が多い時（新宿）は、いちばん太いにじみを省いて描く量を減らす
       var t0 = performance.now();
-      projectAll(D, f, near, far);
+      projectAll(D, f, near_, far);
       var heavy = perf.drawn > 6000;
       [WHITE, ACC, AMBER].forEach(function (col) {
-        if (!heavy) strokeBuckets(segs, D, f, near, far, col, 5, 0.09);
-        strokeBuckets(segs, D, f, near, far, col, 2.2, heavy ? 0.16 : 0.22);
-        strokeBuckets(segs, D, f, near, far, col, 1, 0.95);
+        if (!heavy) strokeBuckets(col, 5, 0.09);
+        strokeBuckets(col, 2.2, heavy ? 0.16 : 0.22);
+        strokeBuckets(col, 1, 0.95);
       });
-      drawGlyphs(D, f);
       // 階の名前：床の板の、画面でいちばん左の角から外側へ引き出し線を出し、左の列に階の高い順で並べる（重ならないよう 16px 以上離す）
       ctx.font = "11px ui-monospace, Menlo, monospace";
       ctx.textBaseline = "middle";
       var labs = [];
       st.levels.forEach(function (l) {
-        var sb = slabOf(l.id); if (!sb) return;
+        var sb = slabs[l.id]; if (!sb) return;
+        if (scope && !scope.levels[l.id]) return;   // ルートの階だけ
         var best = null;
         [[sb[0], sb[1]], [sb[2], sb[1]], [sb[2], sb[3]], [sb[0], sb[3]]].forEach(function (c) {
           var q = proj(P(c[0], c[1], l.id, 0), D, f); if (q && (!best || q[0] < best[0])) best = q;
@@ -404,43 +594,51 @@
       labs.sort(function (a, b) { return b.z - a.z; });
       for (var it = 0; it < 4; it++) {
         for (var li = 1; li < labs.length; li++) if (labs[li].y < labs[li - 1].y + 16) labs[li].y = labs[li - 1].y + 16;
-        // 画面の外へはみ出す名前は、端に押し込んでから詰め直す（拡大した時に下端で重ならないように）
         if (labs.length && labs[labs.length - 1].y > H - 10) labs[labs.length - 1].y = H - 10;
         for (li = labs.length - 2; li >= 0; li--) if (labs[li].y > labs[li + 1].y - 16) labs[li].y = labs[li + 1].y - 16;
         if (labs.length && labs[0].y < 10) labs[0].y = 10;
       }
       labs.forEach(function (b) {
         var tx = 8, ex = tx + b.w + 4;
+        var ax = Math.max(-4000, Math.min(W + 4000, b.ax)), ay = Math.max(-4000, Math.min(H + 4000, b.ay));
         ctx.strokeStyle = "rgba(" + WHITE + ",.35)"; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(ex, b.y); ctx.lineTo(Math.max(ex + 6, b.ax - 3), b.y); ctx.lineTo(b.ax, b.ay); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(ex, b.y); ctx.lineTo(Math.max(ex + 6, ax - 3), b.y); ctx.lineTo(ax, ay); ctx.stroke();
         ctx.fillStyle = "rgba(" + WHITE + "," + (focus && b.id !== focus ? ".35" : ".85") + ")"; ctx.textAlign = "left";
         ctx.fillText(b.t, tx, b.y);
         b.box = [tx, b.y - 7, ex, b.y + 7];
       });
       lastLabels = labs;
-      // 経路
+      // 経路（いまの区間を強く、ほかは控えめに）
       if (route) {
-        var rp = route.map(function (p) { return proj(p, D, f); });   // ここの rp は経路の点の投影（線の投影 pr とは別）
+        var rp = route.map(function (p) { return proj(p, D, f); });
         if (rp.every(Boolean)) {
           var len = [0];
           for (var i = 1; i < rp.length; i++) len.push(len[i - 1] + Math.hypot(rp[i][0] - rp[i - 1][0], rp[i][1] - rp[i - 1][1]));
           var total = len[len.length - 1] || 1, upto = total * routeT;
-          var path = function () {
-            ctx.beginPath(); ctx.moveTo(rp[0][0], rp[0][1]);
+          var path = function (only) {
+            ctx.beginPath();
+            var started = false;
             for (var i = 1; i < rp.length; i++) {
+              if (only != null && routeMeta[i - 1] && routeMeta[i - 1].sec !== only) { started = false; continue; }
+              if (len[i - 1] > upto) break;
+              if (!started) { ctx.moveTo(rp[i - 1][0], rp[i - 1][1]); started = true; }
               if (len[i] <= upto) ctx.lineTo(rp[i][0], rp[i][1]);
               else { var t = (upto - len[i - 1]) / Math.max(1e-6, len[i] - len[i - 1]); ctx.lineTo(rp[i - 1][0] + (rp[i][0] - rp[i - 1][0]) * t, rp[i - 1][1] + (rp[i][1] - rp[i - 1][1]) * t); break; }
             }
           };
-          [[14, 0.07], [7, 0.16], [3.2, 0.55], [1.6, 1]].forEach(function (w) { path(); ctx.lineWidth = w[0]; ctx.strokeStyle = "rgba(" + ACC + "," + w[1] + ")"; ctx.stroke(); });
+          var dimAll = curSec >= 0 ? 0.4 : 1;
+          [[14, 0.07], [7, 0.16], [3.2, 0.55], [1.6, 1]].forEach(function (w) { path(null); ctx.lineWidth = w[0]; ctx.strokeStyle = "rgba(" + ACC + "," + (w[1] * dimAll).toFixed(3) + ")"; ctx.stroke(); });
+          if (curSec >= 0) {
+            [[18, 0.12], [8, 0.3], [3.6, 0.8], [1.8, 1]].forEach(function (w) { path(curSec); ctx.lineWidth = w[0]; ctx.strokeStyle = "rgba(" + ACC + "," + w[1] + ")"; ctx.stroke(); });
+            path(curSec); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.stroke();
+          }
           // 推測の接続を通る区間は、琥珀色の点線を重ねる（「推」の印）
-          if (routeGuess.length && routeT >= 1) {
+          if (routeT >= 1 && routeMeta.some(function (m) { return m.g; })) {
             ctx.setLineDash([4, 4]); ctx.lineWidth = 2.4; ctx.strokeStyle = "rgba(" + AMBER + ",.95)";
             ctx.beginPath();
-            for (var gi = 0; gi < routeGuess.length; gi++) if (routeGuess[gi]) { ctx.moveTo(rp[gi][0], rp[gi][1]); ctx.lineTo(rp[gi + 1][0], rp[gi + 1][1]); }
+            for (var gi = 0; gi < routeMeta.length; gi++) if (routeMeta[gi].g) { ctx.moveTo(rp[gi][0], rp[gi][1]); ctx.lineTo(rp[gi + 1][0], rp[gi + 1][1]); }
             ctx.stroke(); ctx.setLineDash([]);
           }
-          // 進む向きの光の粒（引き終えてから 2 往復だけ・動きを減らす設定では出さない）
           var pt = (now - pulseT0) / 1600;
           if (routeT >= 1 && !reduced() && pt >= 0 && pt < 2) {
             var at = total * (pt % 1);
@@ -453,7 +651,6 @@
               break;
             }
           }
-          // 始点（ドア）と終点の印
           var ends = [[rp[0], AMBER], [routeT >= 1 ? rp[rp.length - 1] : null, ACC]];
           ends.forEach(function (e) {
             if (!e[0]) return;
@@ -463,6 +660,7 @@
           });
         }
       }
+      drawGlyphs(D, f);
       ctx.globalCompositeOperation = "source-over";
       var dtm = performance.now() - t0;
       perf.last = dtm; perf.n++; perf.sum += dtm; perf.max = Math.max(perf.max, dtm);
@@ -470,14 +668,21 @@
 
     // ── 繰り返し（必要な間だけ回す）
     function animating(now) {
-      return routeT < 1 || Math.abs(vel.yaw) > 1e-4 || Math.abs(vel.pitch) > 1e-4 || Math.abs(spread - spreadTo) > 1e-3 || (!reduced() && route && now - pulseT0 < 3200);
+      return !!anim || routeT < 1 || Math.abs(vel.yaw) > 1e-4 || Math.abs(vel.pitch) > 1e-4 || Math.abs(spread - spreadTo) > 1e-3 || (!reduced() && route && now - pulseT0 < 3200);
     }
     var last = 0;
     function frame(now) {
       raf = 0;
       if (!alive || !canvas.isConnected) return;
       var dt = last ? Math.min(0.05, (now - last) / 1000) : 0.016; last = now;
-      if (routeT < 1) { routeT = Math.min(1, (now - routeT0) / 900); routeT = routeT >= 1 ? 1 : routeT; if (routeT >= 1) pulseT0 = now; }
+      if (routeT < 1) { routeT = Math.min(1, (now - routeT0) / 900); if (routeT >= 1) pulseT0 = now; }
+      if (anim) {
+        var u = Math.min(1, (now - anim.t0) / anim.dur), e = 1 - Math.pow(1 - u, 3), a = anim.a, b = anim.b;
+        cam.tx = a.tx + (b.tx - a.tx) * e; cam.ty = a.ty + (b.ty - a.ty) * e; cam.tz = a.tz + (b.tz - a.tz) * e;
+        cam.zoom = Math.exp(Math.log(a.zoom) + (Math.log(b.zoom) - Math.log(a.zoom)) * e);
+        fit.ox = a.ox + (b.ox - a.ox) * e; fit.oy = a.oy + (b.oy - a.oy) * e;
+        if (u >= 1) anim = null;
+      }
       if (!drag.active && (vel.yaw || vel.pitch)) {
         cam.yaw += vel.yaw * dt * 60; cam.pitch = clampP(cam.pitch + vel.pitch * dt * 60);
         var dec = Math.exp(-dt * 5.5); vel.yaw *= dec; vel.pitch *= dec;
@@ -486,7 +691,7 @@
       if (Math.abs(spread - spreadTo) > 1e-3) {
         spread += (spreadTo - spread) * (1 - Math.exp(-dt * 9));
         if (Math.abs(spread - spreadTo) <= 1e-3) spread = spreadTo;
-        segs = build(); route = routePoints(lastR);
+        route = buildRoute(lastR); rebuild();
       }
       draw(now);
       if (animating(now)) kick(); else last = 0;
@@ -494,20 +699,21 @@
     function kick() { if (!raf && alive) raf = requestAnimationFrame(frame); }
     function clampP(p) { return Math.min(90 * DEG, Math.max(12 * DEG, p)); }   // ピッチは 12°〜真上 90°。ヨーは鉛直の軸まわりだけなので床は常に水平
 
-    // ── 操作：1 本指＝回転、2 本指＝拡大（つまむ）と平行移動、ホイール＝拡大、矢印キー＝回転、＋−＝拡大
+    // ── 操作：1 本指＝回転、2 本指＝拡大（つまむ）と平行移動、ホイール＝拡大、矢印キー＝回転、＋−＝拡大、[ ]＝区間を戻る・進む
     var pts = {}, drag = { active: false };
     function count() { return Object.keys(pts).length; }
     function pinchInfo() {
       var k = Object.keys(pts), a = pts[k[0]], b = pts[k[1]];
       return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
     }
-    function zoomBy(m) { cam.zoom = Math.min(6, Math.max(0.6, cam.zoom * m)); kick(); }
+    function zoomBy(m) { anim = null; cam.zoom = Math.min(ZMAX / fit.k, Math.max(ZMIN / fit.k, cam.zoom * m)); kick(); }
     function pan(dx, dy) {
+      anim = null;
       var D = camDist(), f = fovF(), s = D / f;
       var cy_ = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
       cam.tx -= (dx * cy_ + dy * sy / Math.max(0.3, Math.sin(cam.pitch))) * s;
       cam.tz -= (-dx * sy + dy * cy_ / Math.max(0.3, Math.sin(cam.pitch))) * s;
-      var lim = R; cam.tx = Math.max(-lim, Math.min(lim, cam.tx)); cam.tz = Math.max(-lim, Math.min(lim, cam.tz));
+      var lim = R * 1.2; cam.tx = Math.max(-lim, Math.min(lim, cam.tx)); cam.tz = Math.max(-lim, Math.min(lim, cam.tz));
     }
     canvas.addEventListener("pointerdown", function (e) {
       canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
@@ -546,45 +752,61 @@
       if (k === "ArrowLeft") cam.yaw += 0.12; else if (k === "ArrowRight") cam.yaw -= 0.12;
       else if (k === "ArrowUp") cam.pitch = clampP(cam.pitch + 0.08); else if (k === "ArrowDown") cam.pitch = clampP(cam.pitch - 0.08);
       else if (k === "+" || k === "=") zoomBy(1.15); else if (k === "-" || k === "_") zoomBy(1 / 1.15);
+      else if (k === "]") api.stepSection(1); else if (k === "[") api.stepSection(-1);
       else used = false;
       if (used) { e.preventDefault(); kick(); }
     });
+    var lastR = null, lastLabels = [];
     var ro = window.ResizeObserver ? new ResizeObserver(resize) : null;
+    rebuild();
     if (ro) ro.observe(canvas); else window.addEventListener("resize", resize);
     resize();
 
-    var lastR = null, lastLabels = [];
-    return {
-      setSelection: function (s) { sel = s; segs = build(); kick(); },
-      setRoute: function (r) {
-        lastR = r; route = routePoints(r);
-        var now = performance.now();
-        if (reduced() || opts.instant) { routeT = 1; pulseT0 = -1e9; } else { routeT = 0; routeT0 = now; }
+    var api = {
+      setSelection: function (s) { sel = s; route = buildRoute(lastR); rebuild(); kick(); },
+      /** ルートを出す。カメラはルート全体に自動で合わせる（o.fit=false で合わせない） */
+      setRoute: function (r, o) {
+        lastR = r; curSec = -1;
+        route = buildRoute(r); makeNear(r); rebuild();
+        if (reduced() || opts.instant) { routeT = 1; pulseT0 = -1e9; } else { routeT = 0; routeT0 = performance.now(); }
+        if (!o || o.fit !== false) { if (route) fitRoute(false); else fitView(); }
         kick();
       },
-      reset: function () { cam.yaw = HOME.yaw; cam.pitch = HOME.pitch; cam.zoom = 1; cam.tx = 0; cam.tz = 0; vel.yaw = vel.pitch = 0; fitView(); kick(); },
-      setSpread: function (on) { spreadTo = on ? SPREAD[1] : SPREAD[0]; if (reduced()) { spread = spreadTo; segs = build(); route = routePoints(lastR); } kick(); },
+      /** 区間：-1＝ルート全体。i 番の区間に寄って強調する */
+      setSection: function (i) { if (!route) return -1; curSec = i < -1 ? -1 : i >= secs.length ? secs.length - 1 : i; fitRoute(false); kick(); return curSec; },
+      stepSection: function (d) { if (!route || !secs.length) return -1; var i = curSec + d; if (i < -1) i = secs.length - 1; if (i >= secs.length) i = -1; return api.setSection(i); },
+      section: function () { return curSec; },
+      sectionCount: function () { return secs.length; },
+      fitRoute: function () { curSec = -1; return fitRoute(false); },
+      /** 視点を戻す：ルートがあればルート全体へ、なければ駅全体へ（向きも初めの角度に） */
+      reset: function () { cam.yaw = HOME.yaw; cam.pitch = HOME.pitch; vel.yaw = vel.pitch = 0; anim = null; if (route) { curSec = -1; fitRoute(true); } else fitView(); kick(); },
+      setSpread: function (on) { spreadTo = on ? SPREAD[1] : SPREAD[0]; if (reduced()) { spread = spreadTo; route = buildRoute(lastR); rebuild(); } kick(); },
       resume: function () { alive = true; last = 0; resize(); },
       destroy: function () { alive = false; if (raf) cancelAnimationFrame(raf); raf = 0; if (ro) ro.disconnect(); },
-      _state: function () { return { cam: Object.assign({}, cam), spread: spread, routeT: routeT, segs: segs.length, running: !!raf }; },
-      _segs: function () { return segs.map(function (s) { return { a: s[0], b: s[1], tag: s[4] }; }); },
+      /** ルートの近くの施設：shown＝描く記号の数（まとめた後）、items＝範囲の中の施設の数、all＝駅の全部の数 */
+      nearInfo: function () { return { shown: near.length, items: nearCount, all: glyphs.length, list: near.map(function (g) { return { kind: g.kind, n: g.n, id: g.id, d: +g.d.toFixed(1), level: g.level, goal: g.goal }; }) }; },
+      _state: function () { return { cam: Object.assign({}, cam), k: fit.k, spread: spread, routeT: routeT, segs: segs.length, running: !!raf, section: curSec, scoped: !!scope, fitted: fitted ? Object.assign({}, fitted) : null }; },
+      _segs: function () { return segs.map(function (s) { return { a: s[0], b: s[1], tag: s[4], kind: s[7] }; }); },
+      _segsAll: function () { return build(null).map(function (s) { return { a: s[0], b: s[1], tag: s[4], kind: s[7] }; }); },
       _levelHeights: function () { var o = {}; st.levels.forEach(function (l) { o[l.id] = zOf(l.id, 0); }); return o; },
       _labels: function () { return lastLabels.map(function (b) { return { t: b.t, box: b.box }; }); },
-      _setCam: function (yaw, pitch) { cam.yaw = yaw; cam.pitch = clampP(pitch); vel.yaw = vel.pitch = 0; fitView(); kick(); },
+      _icons: function () { return lastIcons.slice(); },
+      _setCam: function (yaw, pitch) { cam.yaw = yaw; cam.pitch = clampP(pitch); vel.yaw = vel.pitch = 0; anim = null; if (route) fitRoute(true); else fitView(); kick(); },
       _project: function (x, y, level, dz) { return proj(P(x, y, level, dz), camDist(), fovF()); },
-      /** 種類ごとの表示：hide=true で隠す（toilet / stairs / escalator / elevator / exit / gate / platform） */
+      _pxPerM: function () { return fovF() / camDist(); },
+      _zoomLimits: function () { return { min: ZMIN, max: ZMAX }; },
       setHidden: function (kind, hide) { hidden[kind] = !!hide; kick(); },
       hidden: function () { return Object.assign({}, hidden); },
-      /** 1 階だけ強調（他の階は薄く）。null で全部 */
       setFocus: function (lv) { focus = lv && L[lv] ? lv : null; kick(); },
       focus: function () { return focus; },
       /** その点を画面の中心に寄せて拡大 */
-      zoomTo: function (x, y, zoom) { cam.tx = x - cx; cam.tz = y - cy; cam.zoom = Math.min(6, Math.max(0.6, zoom || 2.5)); kick(); },
-      _perf: function () { return { frames: perf.n, avgMs: perf.n ? perf.sum / perf.n : 0, maxMs: perf.max, lastMs: perf.last, segs: segs.length, glyphs: glyphs.length, drawn: perf.drawn, culled: perf.culled }; },
+      zoomTo: function (x, y, zoom) { anim = null; fit = { k: 1, ox: 0, oy: 0 }; cam.tx = x - cx; cam.tz = y - cy; cam.ty = 0; cam.zoom = Math.min(ZMAX, Math.max(ZMIN, zoom || 2.5)); kick(); },
+      _perf: function () { return { frames: perf.n, avgMs: perf.n ? perf.sum / perf.n : 0, maxMs: perf.max, lastMs: perf.last, segs: segs.length, glyphs: glyphs.length, near: near.length, drawn: perf.drawn, culled: perf.culled }; },
       _perfReset: function () { perf.n = 0; perf.sum = 0; perf.max = 0; },
       _drawOnce: function () { draw(performance.now()); return perf.last; },
       _glyphs: function () { return glyphs.slice(); }
     };
+    return api;
   }
   GT.station3d = { create: create };
 })(window.GT = window.GT || {});

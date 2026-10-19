@@ -98,3 +98,15 @@ test("経路不明：つながらない 2 点は ok:false", () => {
   const r = G.route(st, { platform: iso.id }, ex.id);
   assert.equal(r.ok, false); assert.equal(r.sec, null);
 });
+test("3 種のルート：JR 14 番線 → 出口 21。段差を避けると階段・エスカレーターが減る（0 にできない時はその数を返す）", () => {
+  const p = st.platforms.find((x) => /^14\s/.test(x.label || ""));
+  const ex = st.nodes.find((n) => n.kind === "exit" && n.name === "出口 21");
+  const fast = G.route(st, { platform: p.id }, ex.id);
+  const avoid = G.route(st, { platform: p.id }, ex.id, { avoidSteps: true });
+  assert.equal(avoid.ok, true);
+  assert.ok(avoid.stepEdges <= fast.stepEdges);
+  assert.equal(avoid.stepEdges, avoid.steps.filter((s) => s.kind === "stairs" || s.kind === "escalator").length);
+  const wc = G.route(st, { platform: p.id }, { kind: "toilet" });
+  assert.equal(wc.ok, true);
+  assert.equal(st.nodes.find((n) => n.id === wc.goal).kind, "toilet");
+});

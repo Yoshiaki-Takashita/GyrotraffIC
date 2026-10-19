@@ -1,12 +1,122 @@
 {
- "全体": {
-  "med": 4.2,
-  "p95": 6,
-  "max": 6.6,
-  "segs": 8907,
-  "glyphs": 1049,
-  "drawn": 8907,
+ "_segs": {
+  "all": 10573,
+  "route": 2996
+ },
+ "ルート全体": {
+  "med": 1.2,
+  "p95": 2.4,
+  "max": 2.8,
+  "segs": 2996,
+  "glyphs": 352,
+  "drawn": 2996,
   "culled": 0
+ },
+ "全体（ルートなし）": {
+  "med": 2.8,
+  "p95": 4.9,
+  "max": 5,
+  "segs": 10573,
+  "glyphs": 352,
+  "drawn": 10573,
+  "culled": 0
+ },
+ "_near": {
+  "shown": 8,
+  "items": 70,
+  "all": 352,
+  "list": [
+   {
+    "kind": "exit",
+    "n": 2,
+    "id": "MXc79b281019",
+    "d": 0,
+    "level": "1F",
+    "goal": true
+   },
+   {
+    "kind": "gate",
+    "n": 3,
+    "id": "T11114545",
+    "d": 0,
+    "level": "B1F",
+    "goal": false
+   },
+   {
+    "kind": "gate",
+    "n": 2,
+    "id": "T11126975",
+    "d": 1.9,
+    "level": "B2F",
+    "goal": false
+   },
+   {
+    "kind": "toilet",
+    "n": 1,
+    "id": "T11110133",
+    "d": 3.5,
+    "level": "B2F",
+    "goal": false
+   },
+   {
+    "kind": "exit",
+    "n": 1,
+    "id": "MXf8cc042d31",
+    "d": 3.9,
+    "level": "B2F",
+    "goal": false
+   },
+   {
+    "kind": "elevator",
+    "n": 3,
+    "id": "T11110170",
+    "d": 4.1,
+    "level": "B2F",
+    "goal": false
+   },
+   {
+    "kind": "elevator",
+    "n": 1,
+    "id": "T11115828",
+    "d": 4.2,
+    "level": "2F",
+    "goal": false
+   },
+   {
+    "kind": "toilet",
+    "n": 1,
+    "id": "TG29008002",
+    "d": 4.7,
+    "level": "2F",
+    "goal": false
+   }
+  ]
+ },
+ "区間に寄った時": {
+  "med": 0.6,
+  "p95": 1,
+  "max": 2,
+  "segs": 2996,
+  "glyphs": 352,
+  "drawn": 641,
+  "culled": 2355
+ },
+ "_zoom": {
+  "wholePxPerM": 0.46,
+  "sectionPxPerM": 12.92,
+  "maxedPxPerM": 28.3
+ },
+ "_avoid": {
+  "fastStepEdges": 6,
+  "avoidStepEdges": 4,
+  "sec": 631.7
+ },
+ "_toilet": {
+  "ok": true,
+  "goalKind": "toilet",
+  "note": "最寄りのトイレ：男子トイレ（3F）",
+  "big": "1分24秒",
+  "goalIcon": true
  },
  "_route": {
   "ok": true,
@@ -19,21 +129,21 @@
   "plat": "14 山手線内回り〈渋谷・品川方面〉"
  },
  "1F 強調": {
-  "med": 2.9,
-  "p95": 5.1,
-  "max": 5.7,
-  "segs": 8907,
-  "glyphs": 1049,
-  "drawn": 8907,
+  "med": 1.6,
+  "p95": 2.5,
+  "max": 3.7,
+  "segs": 2996,
+  "glyphs": 352,
+  "drawn": 2996,
   "culled": 0
  },
  "1F 強調・ホーム拡大": {
-  "med": 2.5,
-  "p95": 5.4,
-  "max": 6.9,
-  "segs": 8907,
-  "glyphs": 1049,
-  "drawn": 6723,
-  "culled": 2184
+  "med": 0.8,
+  "p95": 1.5,
+  "max": 1.5,
+  "segs": 2996,
+  "glyphs": 352,
+  "drawn": 1507,
+  "culled": 1489
  }
 }

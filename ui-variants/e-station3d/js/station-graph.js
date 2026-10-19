@@ -28,8 +28,14 @@
     return [Math.min(a, b), Math.max(a, b)];
   }
 
-  // 費用は（不明の数 u, 推測の接続の数 g, 秒 t）の辞書順。推測の接続（e.guess）は、使わずに行けるならそちらを選ぶ。
-  function less(a, b) { return a.u !== b.u ? a.u < b.u : (a.g || 0) !== (b.g || 0) ? (a.g || 0) < (b.g || 0) : a.t < b.t - 1e-9; }
+  // 費用は（段差の数 p, 不明の数 u, 推測の接続の数 g, 秒 t）の辞書順。推測の接続（e.guess）は、使わずに行けるならそちらを選ぶ。
+  // p は「段差を避ける」経路（opts.avoidSteps）の時だけ数える＝階段・エスカレーターの辺にいちばん大きな重みをかける
+  // （エレベーター・坂・水平の道で行けるなら必ずそちらを選び、どうしても通る時は通る数が最も少ない道を選ぶ）。
+  function less(a, b) {
+    var ap = a.p || 0, bp = b.p || 0;
+    if (ap !== bp) return ap < bp;
+    return a.u !== b.u ? a.u < b.u : (a.g || 0) !== (b.g || 0) ? (a.g || 0) < (b.g || 0) : a.t < b.t - 1e-9;
+  }
 
   // 小さな二分ヒープ（新宿の数千点でも速く回るように。以前は open の線形走査だった）
   function Heap() { this.a = []; }
@@ -55,9 +61,11 @@
 
   /**
    * from: { platform, car, door } または { platform }（号車・ドアが不明なホーム。昇降口のどれからでも 0 秒）または { node }
-   * to: ホームの id（その昇降口のどれかに着けばよい）または ノードの id
-   * opts.stepFree: 階段とエスカレーターを使わない ／ opts.noGuess: 推測の接続（guess）を使わない
-   * 戻り値: { ok, sec（分かっている秒の合計）, unknown（不明の区間の数）, guessed（推測の接続の数）, path:[ノードの id], steps:[{a,b,kind,sec,dist?,guess?}] }
+   * to: ホームの id（その昇降口のどれかに着けばよい）または ノードの id、または { kind: "toilet" }（その種類のいちばん近い点＝最寄りのトイレ）
+   * opts.stepFree: 階段とエスカレーターを使わない ／ opts.avoidSteps: 階段とエスカレーターをできるだけ避ける（通れなければ通る）／
+   * opts.noGuess: 推測の接続（guess）を使わない
+   * 戻り値: { ok, sec（分かっている秒の合計）, unknown（不明の区間の数）, guessed（推測の接続の数）, stepEdges（通る階段・エスカレーターの数）,
+   *          goal（着いた点の id）, path:[ノードの id], steps:[{a,b,kind,sec,dist?,guess?}] }
    */
   function route(st, from, to, opts) {
     opts = opts || {};
@@ -73,7 +81,7 @@
     });
     var fp = from.platform ? platformOf(st, from.platform) : null;
     var src = from.node || "__door";
-    var none = { ok: false, sec: null, unknown: 0, guessed: 0, path: [], steps: [] };
+    var none = { ok: false, sec: null, unknown: 0, guessed: 0, stepEdges: 0, goal: null, path: [], steps: [] };
     if (!from.node) {
       if (!fp) return none;
       var acc = (fp.access || []).filter(function (id) { return N[id]; });
@@ -86,12 +94,16 @@
         acc.forEach(function (id) { add("__plat", id, { kind: "platform", sec: 0, dist: null, unknownDoor: true }); });
       }
     } else if (!N[from.node]) return none;
-    var tp = platformOf(st, to), goal = {};
-    if (tp) (tp.access || []).forEach(function (id) { goal[id] = 1; }); else goal[to] = 1;
-    if (from.platform && tp && from.platform === to) return { ok: true, sec: 0, unknown: 0, guessed: 0, path: [], steps: [], same: true };
+    var byKind = to && typeof to === "object" && to.kind ? to.kind : null;
+    var tp = byKind ? null : platformOf(st, to), goal = {};
+    if (byKind) st.nodes.forEach(function (n) { if (n.kind === byKind && adj[n.id]) goal[n.id] = 1; });
+    else if (tp) (tp.access || []).forEach(function (id) { goal[id] = 1; }); else goal[to] = 1;
+    if (from.platform && tp && from.platform === to) return { ok: true, sec: 0, unknown: 0, guessed: 0, stepEdges: 0, goal: null, path: [], steps: [], same: true };
+    if (from.node && goal[from.node]) return { ok: true, sec: 0, unknown: 0, guessed: 0, stepEdges: 0, goal: from.node, path: [from.node], steps: [], same: true };
+    var avoid = !!opts.avoidSteps;
 
     var best = {}, prev = {}, done = {};
-    best[src] = { u: 0, g: 0, t: 0 };
+    best[src] = { p: 0, u: 0, g: 0, t: 0 };
     var heap = new Heap(); heap.push(src, best[src]);
     var hit = null;
     while (heap.a.length) {
@@ -103,8 +115,8 @@
       for (var i = 0; i < list.length; i++) {
         var x = list[i];
         if (done[x.to]) continue;
-        var c = best[cur], g = c.g + (x.e.guess ? 1 : 0);
-        var nc = x.e.sec == null ? { u: c.u + 1, g: g, t: c.t } : { u: c.u, g: g, t: c.t + x.e.sec };
+        var c = best[cur], g = c.g + (x.e.guess ? 1 : 0), pp = c.p + (avoid && STEP_KINDS[x.e.kind] ? 1 : 0);
+        var nc = x.e.sec == null ? { p: pp, u: c.u + 1, g: g, t: c.t } : { p: pp, u: c.u, g: g, t: c.t + x.e.sec };
         if (!best[x.to] || less(nc, best[x.to])) { best[x.to] = nc; prev[x.to] = { from: cur, e: x.e }; heap.push(x.to, nc); }
       }
     }
@@ -115,7 +127,8 @@
       steps.unshift({ a: prev[n].from, b: n, kind: e.kind, sec: e.sec, dist: e.dist, guess: !!e.guess, unknownDoor: !!e.unknownDoor });
       path.unshift(prev[n].from);
     }
-    return { ok: true, sec: best[hit].t, unknown: best[hit].u, guessed: best[hit].g, path: path, steps: steps };
+    var se = steps.filter(function (x) { return STEP_KINDS[x.kind]; }).length;
+    return { ok: true, sec: best[hit].t, unknown: best[hit].u, guessed: best[hit].g, stepEdges: se, goal: hit, path: path, steps: steps };
   }
 
   /** つながりの成分（無向）。戻り値: { of: {ノードの id: 成分の番号}, sizes: [大きい順の点の数] }（辺のない点は数えない） */
@@ -148,5 +161,18 @@
     return top;
   }
 
-  return { route: route, bestDoor: bestDoor, components: components, hasDoors: hasDoors, less: less, doorS: doorS, doorXY: doorXY, carRange: carRange, platformOf: platformOf, STEP_KINDS: STEP_KINDS };
+  /** 経路を「区間」に分ける（同じ種類が続く所は 1 区間。推測の接続とホームは 1 本ずつ）。
+   *  戻り値: [{ kind, guess, i0, i1 }]  i0〜i1 は steps の番号（i1 を含む）。path では i0〜i1+1 の点がその区間 */
+  function sections(r) {
+    var out = [];
+    if (!r || !r.ok || !r.steps) return out;
+    r.steps.forEach(function (s, i) {
+      var p = out[out.length - 1];
+      if (p && s.kind === p.kind && !s.guess && !p.guess && s.kind !== "platform") { p.i1 = i; return; }
+      out.push({ kind: s.kind, guess: !!s.guess, i0: i, i1: i });
+    });
+    return out;
+  }
+
+  return { route: route, sections: sections, bestDoor: bestDoor, components: components, hasDoors: hasDoors, less: less, doorS: doorS, doorXY: doorXY, carRange: carRange, platformOf: platformOf, STEP_KINDS: STEP_KINDS };
 });

@@ -52,3 +52,32 @@ test("同じホームなら移動なし・出口へも行ける", () => {
   const r = G.route(st, { platform: "P34", car: 4, door: 2 }, "EXN");
   assert.equal(r.ok, true); assert.equal(r.path.at(-1), "EXN");
 });
+test("段差を避ける：階段・エスカレーターを使わずエレベーターへ（通れるなら必ず避ける）", () => {
+  const r = G.route(st, { platform: "P12", car: 7, door: 3 }, "P56", { avoidSteps: true });
+  assert.equal(r.ok, true); assert.equal(r.stepEdges, 0);
+  assert.ok(r.path.includes("P12_el") && r.path.includes("P56_el"));
+  const fast = G.route(st, { platform: "P12", car: 7, door: 3 }, "P56");
+  assert.ok(fast.stepEdges > 0);
+});
+test("段差を避けられない時は、通る数がいちばん少ない道を返し、その数を stepEdges に出す", () => {
+  const s2 = JSON.parse(JSON.stringify(st));
+  s2.edges = s2.edges.filter((e) => e.kind !== "elevator");
+  const r = G.route(s2, { platform: "P12", car: 7, door: 3 }, "P56", { avoidSteps: true });
+  assert.equal(r.ok, true); assert.equal(r.stepEdges, 2);
+});
+test("トイレ：いちばん近いトイレが終点になる", () => {
+  const r = G.route(st, { platform: "P12", car: 7, door: 3 }, { kind: "toilet" });
+  assert.equal(r.ok, true);
+  assert.ok(["WC1", "WC2"].includes(r.goal)); assert.equal(r.path.at(-1), r.goal);
+  for (const id of ["WC1", "WC2"]) { const o = G.route(st, { platform: "P12", car: 7, door: 3 }, id); assert.ok(o.sec >= r.sec); }
+  const none = G.route({ ...st, nodes: st.nodes.filter((n) => n.kind !== "toilet") }, { platform: "P12", car: 7, door: 3 }, { kind: "toilet" });
+  assert.equal(none.ok, false);
+});
+test("区間：同じ種類が続く所は 1 区間、全部の手順を漏れなく覆う", () => {
+  const r = G.route(st, { platform: "P12", car: 7, door: 3 }, "P56");
+  const s = G.sections(r);
+  assert.equal(s[0].i0, 0); assert.equal(s.at(-1).i1, r.steps.length - 1);
+  for (let i = 1; i < s.length; i++) assert.equal(s[i].i0, s[i - 1].i1 + 1);
+  assert.ok(s.length < r.steps.length);
+  assert.deepEqual([...G.sections({ ok: false })], []);
+});
