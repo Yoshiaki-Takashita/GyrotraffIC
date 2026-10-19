@@ -6,6 +6,7 @@ import { FP_GEO, FP_STATION, FP_TRANSFER, Network, type PatternDay } from "./net
 import { DEFAULT_MODE_PROFILES, type Mode, type ModeProfile } from "./modes.js";
 import type { Journey, Leg, StopRef } from "./journey.js";
 import { NoFareCalculator, type FareCalculator } from "./fare.js";
+import { confidenceFromCode, type Confidence } from "./provenance.js";
 
 export interface DepartQuery {
   from: string | string[];
@@ -343,12 +344,12 @@ export class Router {
     return r;
   }
 
-  private fpInfo(a: number, b: number): { dur: number; src: WalkSource } {
+  private fpInfo(a: number, b: number): { dur: number; src: WalkSource; confidence: Confidence } {
     const net = this.net;
     for (let e = net.fpStart[a]; e < net.fpStart[a + 1]; e++) {
       if (net.fpTo[e] === b) {
         const s = net.fpSrc[e];
-        return { dur: net.fpDur[e], src: s === FP_TRANSFER ? "transfer" : s === FP_STATION ? "station" : s === FP_GEO ? "geo" : "geo" };
+        return { dur: net.fpDur[e], confidence: confidenceFromCode(net.fpConf[e]), src: s === FP_TRANSFER ? "transfer" : s === FP_STATION ? "station" : s === FP_GEO ? "geo" : "geo" };
       }
     }
     throw new Error(`内部エラー：徒歩のつながりが見つからない ${a}→${b}`);
@@ -378,13 +379,13 @@ export class Router {
     if (k === 0) {
       if (wf !== ORIGIN && wf >= 0) {
         const fi = this.fpInfo(wf, s);
-        legs.push({ type: "walk", from: this.stopRef(wf), to: this.stopRef(s), duration: fi.dur, source: fi.src });
+        legs.push({ type: "walk", from: this.stopRef(wf), to: this.stopRef(s), duration: fi.dur, source: fi.src, confidence: fi.confidence });
       }
       return legs;
     }
     if (wf !== s) {
       const fi = this.fpInfo(wf, s);
-      legs.push({ type: "walk", from: this.stopRef(wf), to: this.stopRef(s), duration: fi.dur, source: fi.src });
+      legs.push({ type: "walk", from: this.stopRef(wf), to: this.stopRef(s), duration: fi.dur, source: fi.src, confidence: fi.confidence });
       s = wf;
     }
     let round = k;
@@ -425,16 +426,16 @@ export class Router {
       if (r === 0) {
         if (from !== ORIGIN) {
           const fi = this.fpInfo(from, b);
-          legs.push({ type: "walk", from: this.stopRef(from), to: this.stopRef(b), duration: fi.dur, source: fi.src });
+          legs.push({ type: "walk", from: this.stopRef(from), to: this.stopRef(b), duration: fi.dur, source: fi.src, confidence: fi.confidence });
         }
         break;
       }
       if (from === b) {
         const ch = net.selfChange[b];
-        if (ch > 0) legs.push({ type: "walk", from: this.stopRef(b), to: this.stopRef(b), duration: ch, source: "change" });
+        if (ch > 0) legs.push({ type: "walk", from: this.stopRef(b), to: this.stopRef(b), duration: ch, source: "change", confidence: confidenceFromCode(net.selfChangeConf[b]) });
       } else {
         const fi = this.fpInfo(from, b);
-        legs.push({ type: "walk", from: this.stopRef(from), to: this.stopRef(b), duration: fi.dur, source: fi.src });
+        legs.push({ type: "walk", from: this.stopRef(from), to: this.stopRef(b), duration: fi.dur, source: fi.src, confidence: fi.confidence });
         b = from;
       }
       s = b;

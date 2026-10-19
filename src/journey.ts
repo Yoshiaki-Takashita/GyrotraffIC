@@ -1,6 +1,7 @@
 // 探索結果（経路）の形。照合用 JSON（validation/）もこの形を元にする。
 import type { Mode } from "./modes.js";
 import type { FareEstimate } from "./fare.js";
+import type { Confidence } from "./provenance.js";
 
 export interface StopRef {
   stopId: string;
@@ -35,6 +36,8 @@ export interface WalkLeg {
   duration: number;
   /** "transfer"＝transfers.txt・"station"＝同じ駅のホーム間・"geo"＝直線距離からの推定・"change"＝同じ停留所での乗り換え時間 */
   source: "transfer" | "station" | "geo" | "change";
+  /** duration の確信度。transfers.txt の min_transfer_time なら確（confirmed）、距離や既定値からの推定なら推（inferred） */
+  confidence?: Confidence;
 }
 
 export type Leg = TransitLeg | WalkLeg;

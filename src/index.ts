@@ -7,3 +7,5 @@ export { type FareCalculator, type FareEstimate, NoFareCalculator } from "./fare
 export { type Mode, type ModeProfile, DEFAULT_MODE_PROFILES, modeFromRouteType } from "./modes.js";
 export * from "./time.js";
 export * from "./validation.js";
+export { type FareValue, combineFares, cheapestKnown, fareValueToEstimate } from "./fare.js";
+export * from "./provenance.js";

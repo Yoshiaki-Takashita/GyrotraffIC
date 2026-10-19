@@ -4,6 +4,7 @@
 import type { GtfsFeed } from "./gtfs/load.js";
 import { DAY, weekday } from "./time.js";
 import type { Mode } from "./modes.js";
+import { CONF_CONFIRMED, CONF_INFERRED } from "./provenance.js";
 
 export interface NetworkOptions {
   /** 歩く速さ m/秒。既定 1.2（推：約 4.3 km/時） */
@@ -79,8 +80,12 @@ export class Network {
   readonly fpTo: Int32Array;
   readonly fpDur: Int32Array;
   readonly fpSrc: Uint8Array;
+  /** 徒歩の秒の確信度（provenance.ts の CONF_*）。transfers.txt の min_transfer_time だけが確、ほかは推 */
+  readonly fpConf: Uint8Array;
   /** 同じ停留所での乗り換え時間 */
   readonly selfChange: Int32Array;
+  /** 同じ停留所での乗り換え時間の確信度（transfers.txt の type 2 の from=to なら確、既定値なら推） */
+  readonly selfChangeConf: Uint8Array;
   /** 駅 ID → 子の停留所（ホーム） */
   readonly children = new Map<string, number[]>();
   private dayCache = new Map<string, PatternDay[]>();
@@ -120,6 +125,7 @@ export class Network {
 
     // 徒歩
     this.selfChange = new Int32Array(S).fill(this.options.sameStopChangeSec);
+    this.selfChangeConf = new Uint8Array(S).fill(CONF_INFERRED);
     const fp = this.buildFootpaths();
     const fcnt = new Int32Array(S + 1);
     for (const [a] of fp) fcnt[a + 1]++;
@@ -128,9 +134,11 @@ export class Network {
     this.fpTo = new Int32Array(fp.length);
     this.fpDur = new Int32Array(fp.length);
     this.fpSrc = new Uint8Array(fp.length);
+    this.fpConf = new Uint8Array(fp.length);
     const ff = fcnt.slice();
-    for (const [a, b, d, src] of fp) {
+    for (const [a, b, d, src, conf] of fp) {
       const k = ff[a]++;
+      this.fpConf[k] = conf;
       this.fpTo[k] = b;
       this.fpDur[k] = d;
       this.fpSrc[k] = src;
@@ -192,11 +200,11 @@ export class Network {
     return Math.round((d * this.options.detourFactor) / this.options.walkSpeed);
   }
 
-  private buildFootpaths(): [number, number, number, number][] {
+  private buildFootpaths(): [number, number, number, number, number][] {
     const f = this.feed;
     const o = this.options;
     const S = f.stops.length;
-    const map = new Map<number, [number, number]>(); // a*S+b → [秒, 種類]
+    const map = new Map<number, [number, number, number]>(); // a*S+b → [秒, 種類, 確信度]
     const key = (a: number, b: number) => a * S + b;
 
     // 同じ駅のホームどうし
@@ -204,7 +212,7 @@ export class Network {
       for (const a of kids)
         for (const b of kids) {
           if (a === b) continue;
-          map.set(key(a, b), [Math.max(o.stationTransferSec, this.walkSec(a, b)), FP_STATION]);
+          map.set(key(a, b), [Math.max(o.stationTransferSec, this.walkSec(a, b)), FP_STATION, CONF_INFERRED]);
         }
     }
 
@@ -241,7 +249,7 @@ export class Network {
               if (a === b || map.has(key(a, b))) continue;
               const sb = f.stops[b];
               const d = haversine(sa.lat, sa.lon, sb.lat, sb.lon);
-              if (d <= o.maxWalkMeters) map.set(key(a, b), [Math.round((d * o.detourFactor) / o.walkSpeed), FP_GEO]);
+              if (d <= o.maxWalkMeters) map.set(key(a, b), [Math.round((d * o.detourFactor) / o.walkSpeed), FP_GEO, CONF_INFERRED]);
             }
           }
       }
@@ -265,16 +273,19 @@ export class Network {
           }
           if (tr.type >= 4) continue;
           if (a === b) {
-            this.selfChange[a] = tr.type === 2 && tr.minTime !== null ? tr.minTime : o.sameStopChangeSec;
+            const given = tr.type === 2 && tr.minTime !== null;
+            this.selfChange[a] = given ? tr.minTime! : o.sameStopChangeSec;
+            this.selfChangeConf[a] = given ? CONF_CONFIRMED : CONF_INFERRED;
           } else {
-            const d = tr.type === 2 && tr.minTime !== null ? tr.minTime : this.walkSec(a, b);
-            map.set(key(a, b), [d, FP_TRANSFER]);
+            const given = tr.type === 2 && tr.minTime !== null;
+            const d = given ? tr.minTime! : this.walkSec(a, b);
+            map.set(key(a, b), [d, FP_TRANSFER, given ? CONF_CONFIRMED : CONF_INFERRED]);
           }
         }
     }
 
-    const out: [number, number, number, number][] = [];
-    for (const [k, [d, src]] of map) out.push([Math.floor(k / S), k % S, d, src]);
+    const out: [number, number, number, number, number][] = [];
+    for (const [k, [d, src, conf]] of map) out.push([Math.floor(k / S), k % S, d, src, conf]);
     return out;
   }
 
