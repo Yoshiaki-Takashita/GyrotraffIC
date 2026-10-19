@@ -16,12 +16,12 @@
       var recent = GT.store.history.list();
       var favs = GT.store.favPlaces.list();
       var modes = ["now", "depart", "arrive"];
-      // 始発・終電：検索画面の最上部に常時（スクロールしても上に貼り付く）。名前はアイコン＋aria-label、見える文字は固有の短い名詞だけ
-      return '<div class="quick" role="group" aria-label="' + t("home.quick") + '">' +
-        '<button type="button" class="qbtn" id="qFirst" data-q="first" aria-label="' + t("home.first") + '">' + ic("firstTrain") + '<span aria-hidden="true">' + t("home.first") + "</span></button>" +
-        '<button type="button" class="qbtn" id="qLast" data-q="last" aria-label="' + t("home.last") + '">' + ic("lastTrain") + '<span aria-hidden="true">' + t("home.last") + "</span></button>" +
-        "</div>" +
-        '<form id="sf" class="card search" novalidate>' +
+      // 始発・終電：時刻の 3 択（今／出発／到着）の右隣に、アイコンだけの小さなボタン（名前は aria-label）
+      var quick = '<div class="quick" role="group" aria-label="' + t("home.quick") + '">' +
+        '<button type="button" class="qbtn" id="qFirst" data-q="first" aria-label="' + t("home.first") + '" title="' + t("home.first") + '">' + ic("firstTrain") + "</button>" +
+        '<button type="button" class="qbtn" id="qLast" data-q="last" aria-label="' + t("home.last") + '" title="' + t("home.last") + '">' + ic("lastTrain") + "</button>" +
+        "</div>";
+      return '<form id="sf" class="card search" novalidate>' +
         '<div class="od">' +
         '<div class="od-rows">' +
         '<label class="field">' + ic("origin", "od-ic") + '<span class="fl">' + t("home.from") + '</span><input id="fFrom" name="from" list="plist" autocomplete="off" placeholder="' + t("home.fromPh") + '" value="' + esc(form.from ? nameOf(form.from) : "") + '"></label>' +
@@ -30,9 +30,9 @@
         '<button type="button" class="iconbtn swap" id="swap" aria-label="' + t("home.swap") + '">' + ic("swap") + "</button>" +
         "</div>" +
         '<datalist id="plist">' + places.map(function (p) { return '<option value="' + esc(p.name) + '"></option>'; }).join("") + "</datalist>" +
-        '<fieldset class="when"><legend>' + ic("clock") + t("home.when") + '</legend><div class="seg" role="radiogroup">' +
+        '<fieldset class="when"><legend>' + ic("clock") + t("home.when") + '</legend><div class="when-row"><div class="seg" role="radiogroup">' +
         modes.map(function (m) { return '<label class="seg-i"><input type="radio" name="mode" value="' + m + '"' + (form.mode === m ? " checked" : "") + "><span><i class=\"dot\"></i>" + t("home." + m) + "</span></label>"; }).join("") +
-        '</div><label class="field dt"' + (form.mode === "now" ? " hidden" : "") + '><span class="fl">' + t("home.datetime") + '</span><input type="datetime-local" id="fTime" value="' + esc(form.time || "2026-10-20T08:00") + '"></label></fieldset>' +
+        "</div>" + quick + '</div><label class="field dt"' + (form.mode === "now" ? " hidden" : "") + '><span class="fl">' + t("home.datetime") + '</span><input type="datetime-local" id="fTime" value="' + esc(form.time || "2026-10-20T08:00") + '"></label></fieldset>' +
         '<p class="err" id="ferr" role="alert"></p>' +
         '<p class="note">' + ic("info") + t("home.sampleNote") + "</p>" +
         "</form>" +

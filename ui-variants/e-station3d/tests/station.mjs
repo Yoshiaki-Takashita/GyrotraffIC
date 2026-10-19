@@ -1,6 +1,6 @@
 // e-station3d で足した所の試験（ヘッドレス Chromium・playwright-core・ブラウザは 1 本ずつ）。
 // 使い方: NODE_PATH=/opt/node-tools/node_modules node ui-variants/e-station3d/tests/station.mjs [--no-video]
-// 確かめること：始発・終電のボタン（最上部・アイコン・aria-label・押すと 1 案だけ）／極細のスクロールの棒（標準の棒なし・当たり判定 24px 以上・ドラッグで動く）／
+// 確かめること：始発・終電のボタン（時刻の 3 択の右隣・高さを揃える・320px で 1 行・アイコン・aria-label・押すと 1 案だけ）／極細のスクロールの棒（標準の棒なし・当たり判定 24px 以上・ドラッグで動く）／
 //               駅の立体図（描けている・最短の道の秒数・おすすめのドア・段差なしで「不明」・回転・拡大・キー操作）／動きを減らす設定／コンソールのエラー 0。
 // 出力: docs/ui-variants/e-station3d/*.png と videos/*.webm
 import { createRequire } from "node:module";
@@ -46,16 +46,21 @@ for (const theme of ["dark", "light"]) {
   await p.waitForTimeout(400);
   for (const id of ["#qFirst", "#qLast"]) {
     const b = await p.locator(id).boundingBox();
-    ok(b && b.y < 140 && b.height >= 44 && b.width >= 44, C, `${id} が最上部にない・小さい ${JSON.stringify(b)}`);
+    const sg = await p.locator(".when .seg").boundingBox();
+    ok(b && b.height >= 44 && b.width >= 44, C, `${id} の当たり判定が 44px 未満 ${JSON.stringify(b)}`);
+    ok(b && sg && b.x > sg.x + sg.width - 1 && Math.abs((b.y + b.height / 2) - (sg.y + sg.height / 2)) < 4, C, `${id} が時刻の 3 択の右隣にない ${JSON.stringify([b, sg])}`);
     ok(!!(await p.getAttribute(id, "aria-label")), C, `${id} に aria-label がない`);
     ok((await p.locator(id + " svg").count()) === 1, C, `${id} にアイコンがない`);
   }
-  // スクロールしても上に貼り付いたまま
-  await p.evaluate(() => { document.getElementById("view").scrollTop = 400; });
-  await p.waitForTimeout(100);
-  const b2 = await p.locator("#qFirst").boundingBox();
-  ok(b2.y < 140, C, "スクロールすると始発のボタンが隠れる " + b2.y);
-  await p.evaluate(() => { document.getElementById("view").scrollTop = 0; });
+  // 時刻の 3 択と高さが揃い、320px でも 1 行に収まる
+  {
+    const q = await p.locator(".quick").boundingBox(), sg = await p.locator(".when .seg").boundingBox();
+    ok(Math.abs(q.height - sg.height) < 1.5, C, `始発・終電の高さが 3 択と揃わない ${q.height} / ${sg.height}`);
+    await p.setViewportSize({ width: 320, height: 700 }); await p.waitForTimeout(150);
+    const r = await p.evaluate(() => { const a = document.querySelector(".when .seg").getBoundingClientRect(), b = document.querySelector(".quick").getBoundingClientRect(), v = document.getElementById("view"); return { a: [a.top, a.right, a.height], b: [b.top, b.right, b.left], sw: v.scrollWidth, cw: v.clientWidth, labels: [...document.querySelectorAll(".seg-i span")].map((x) => x.getBoundingClientRect().height) }; });
+    ok(Math.abs(r.a[0] - r.b[0]) < 1.5 && r.b[2] >= r.a[1] - 1 && r.sw <= r.cw && r.labels.every((h) => h <= 46), C, "320px で時刻の 3 択と始発・終電が 1 行に収まらない " + JSON.stringify(r));
+    await p.setViewportSize({ width: 390, height: 844 }); await p.waitForTimeout(150);
+  }
   await p.fill("#fFrom", "北見台（架空）");
   await p.fill("#fTo", "海浜公園（架空）");
   if (theme === "dark") await p.screenshot({ path: join(out, "home-quick-dark.png") });
@@ -132,7 +137,12 @@ const litPixels = (p) => p.evaluate(() => {
   const c = document.getElementById("stc"), g = document.createElement("canvas");
   g.width = c.width; g.height = c.height; const x = g.getContext("2d"); x.drawImage(c, 0, 0);
   const d = x.getImageData(0, 0, g.width, g.height).data; let n = 0, acc = 0;
-  for (let i = 0; i < d.length; i += 4) { if (d[i] + d[i + 1] + d[i + 2] > 300) n++; if (d[i + 1] > 150 && d[i] < 140) acc++; }
+  // ダーク＝黒い面の白い線と青緑の線／ライト＝紙の面の濃い線とアクセント色（#00695e 付近）の線
+  const light = document.documentElement.dataset.theme !== "dark";
+  for (let i = 0; i < d.length; i += 4) {
+    if (light) { if (d[i] + d[i + 1] + d[i + 2] < 420) n++; if (d[i] < 60 && d[i + 1] > 80 && d[i + 1] < 140 && d[i + 2] > 60 && d[i + 2] < 130) acc++; }
+    else { if (d[i] + d[i + 1] + d[i + 2] > 300) n++; if (d[i + 1] > 150 && d[i] < 140) acc++; }
+  }
   return { n, acc };
 });
 for (const theme of ["dark", "light"]) {
@@ -142,8 +152,8 @@ for (const theme of ["dark", "light"]) {
   await p.waitForSelector("#stc");
   await p.waitForTimeout(2600);
   const px = await litPixels(p);
-  ok(px.n > 1500, C, "白い線がほとんど描けていない " + px.n);
-  ok(px.acc > 200, C, "経路の光る線が描けていない " + px.acc);
+  ok(px.n > 1500, C, "線（ダーク＝白・ライト＝濃い色）がほとんど描けていない " + px.n);
+  ok(px.acc > 200, C, "経路の線が描けていない " + px.acc);
   ok((await p.textContent(".st-big")).trim() === "3分40秒", C, "7号車3番ドア→環線の時間が違う " + (await p.textContent(".st-big")));
   ok((await p.locator(".st-step").count()) >= 4, C, "手順の一覧が短い");
   await p.screenshot({ path: join(out, `station-${theme}.png`) });

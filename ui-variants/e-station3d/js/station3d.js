@@ -1,4 +1,5 @@
-// 駅の立体図の描画（依存ゼロ・Canvas 2D）。黒い面に「枠線だけが白く光る」線画。
+// 駅の立体図の描画（依存ゼロ・Canvas 2D）。ライトのテーマでは紙のような明るい面に濃いインクの線、
+// ダークのテーマでは黒い面に「枠線だけが白く光る」線画（色は css の --map-* から読む。テーマに従う）。
 // 手法は GNOTO の 3D 音響スタジオ（addons/mstudio-hallview.js）を参考にした：
 //   ・面は描かず、線分だけを白で描く（LineSegments＋白一色）
 //   ・足し算の合成（AdditiveBlending）＝線が重なる所ほど明るい
@@ -17,7 +18,15 @@
 (function (GT) {
   "use strict";
   var DEG = Math.PI / 180;
-  var WHITE = "235,242,245", ACC = "95,214,195", AMBER = "240,178,78";
+  // 線の色の名前（build の中で線の種類の印に使う）。実際の色は描く時に THEME から引く
+  var WHITE = "ink", ACC = "acc", AMBER = "amber";
+  function rgbOf(v, fb) {
+    v = (v || "").trim();
+    var m = /^#([0-9a-f]{6})$/i.exec(v);
+    if (m) { var n = parseInt(m[1], 16); return (n >> 16 & 255) + "," + (n >> 8 & 255) + "," + (n & 255); }
+    m = /rgba?\(([^)]+)\)/.exec(v);
+    return m ? m[1].split(",").slice(0, 3).map(function (x) { return x.trim(); }).join(",") : fb;
+  }
   var VERT = { stairs: 1, escalator: 1 };
 
   function smooth(a, b, x) { var t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); }
@@ -67,6 +76,21 @@
     var raf = 0, alive = true;
     var hidden = {}, focus = null, glyphs = [], near = [], nearCount = 0, perf = { n: 0, sum: 0, last: 0, max: 0, drawn: 0, culled: 0 };
     var reduced = function () { return GT.M ? GT.M.reduced() : false; };
+    // テーマの色：dark＝黒い面に光る白い線（足し算の合成・にじみ）／light＝紙の面に濃い線（普通の重ね塗り・にじみなし）
+    var TH = null;
+    function readTheme() {
+      var cs = getComputedStyle(canvas), dark = document.documentElement.dataset.theme === "dark";
+      TH = { dark: dark,
+        bg: (cs.getPropertyValue("--map-bg") || "").trim() || (dark ? "#020306" : "#f7f6f2"),
+        ink: rgbOf(cs.getPropertyValue("--map-ink"), dark ? "235,242,245" : "20,23,26"),
+        acc: rgbOf(cs.getPropertyValue("--map-accent"), dark ? "95,214,195" : "0,105,94"),
+        amber: rgbOf(cs.getPropertyValue("--map-amber"), dark ? "240,178,78" : "138,83,0") };
+      TH.paper = rgbOf(TH.bg, dark ? "2,3,6" : "247,246,242");
+    }
+    function C(name) { return TH[name] || name; }
+    readTheme();
+    var mo = window.MutationObserver ? new MutationObserver(function () { readTheme(); kick(); }) : null;
+    if (mo) mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
     // ── 世界の座標（x 東・y 北・z 上、単位 m）→ 描画の座標（X 右・Y 上・Z 手前）
     function zOf(level, dz) { return (L[level].z - zMid) * spread + (dz || 0); }
@@ -512,7 +536,7 @@
       ctx.lineWidth = width;
       Object.keys(B).forEach(function (k) {
         var arr = B[k];
-        ctx.strokeStyle = "rgba(" + col + "," + (k / 12).toFixed(3) + ")";
+        ctx.strokeStyle = "rgba(" + C(col) + "," + (k / 12).toFixed(3) + ")";
         ctx.beginPath();
         for (var j = 0; j < arr.length; j++) { var o = arr[j] * 4; ctx.moveTo(pr[o], pr[o + 1]); ctx.lineTo(pr[o + 2], pr[o + 3]); }
         ctx.stroke();
@@ -542,20 +566,22 @@
       list.forEach(function (o) {
         var g = o.g, bx = o.x, col = g.goal ? ACC : WHITE;
         ctx.lineWidth = 1;
-        ctx.strokeStyle = "rgba(" + col + ",.45)";   // 引き出し線（場所の小さな丸 → 記号の枠の上）
+        col = C(col);
+        ctx.strokeStyle = "rgba(" + col + (TH.dark ? ",.45)" : ",.6)");   // 引き出し線（場所の小さな丸 → 記号の枠の上）
         ctx.beginPath(); ctx.moveTo(o.ax, o.ay); ctx.lineTo(bx, y - 13); ctx.stroke();
         ctx.beginPath(); ctx.arc(o.ax, o.ay, 2.2, 0, Math.PI * 2); ctx.stroke();
-        ctx.strokeStyle = "rgba(" + col + ",.6)";
+        if (!TH.dark) { ctx.fillStyle = TH.bg; ctx.fillRect(bx - 12, y - 12, 24, 24); }
+        ctx.strokeStyle = "rgba(" + col + (TH.dark ? ",.6)" : ",.75)");
         ctx.beginPath(); ctx.rect(bx - 12, y - 12, 24, 24); ctx.stroke();
         var sh = SHAPE[g.kind === "exit" && g.ground ? "exitGround" : g.kind];
-        [[2.6, 0.16], [1.1, 0.95]].forEach(function (pass) {
+        (TH.dark ? [[2.6, 0.16], [1.1, 0.95]] : [[1.5, 1]]).forEach(function (pass) {
           ctx.lineWidth = pass[0]; ctx.strokeStyle = "rgba(" + col + "," + pass[1] + ")";
           ctx.beginPath();
           for (var t = 0; t < sh.length; t++) { var l = sh[t]; ctx.moveTo(bx + l[0] * r, y + l[1] * r); ctx.lineTo(bx + l[2] * r, y + l[3] * r); }
           ctx.stroke();
         });
         if (g.n > 1) {   // まとめた件数
-          ctx.fillStyle = "rgba(" + WHITE + ",.9)"; ctx.font = "10px ui-monospace, Menlo, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+          ctx.fillStyle = "rgba(" + TH.ink + ",.9)"; ctx.font = "10px ui-monospace, Menlo, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
           ctx.fillText(String(g.n), bx + 14, y - 10);
         }
         lastIcons.push({ kind: g.kind, n: g.n, box: [bx - 12, y - 12, bx + 12, y + 12], anchor: [o.ax, o.ay] });
@@ -565,18 +591,20 @@
     function draw(now) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = "#020306";
+      ctx.fillStyle = TH.bg;
       ctx.fillRect(0, 0, W, H);
       var D = camDist(), f = fovF(), near_ = D - R * 0.7, far = D + R * 1.0;
-      ctx.globalCompositeOperation = "lighter";
+      ctx.globalCompositeOperation = TH.dark ? "lighter" : "source-over";   // 明るい面では足し算にしない（白に飛ぶため）
       ctx.lineCap = "round"; ctx.lineJoin = "round";
       var t0 = performance.now();
       projectAll(D, f, near_, far);
       var heavy = perf.drawn > 6000;
       [WHITE, ACC, AMBER].forEach(function (col) {
-        if (!heavy) strokeBuckets(col, 5, 0.09);
-        strokeBuckets(col, 2.2, heavy ? 0.16 : 0.22);
-        strokeBuckets(col, 1, 0.95);
+        if (TH.dark) {   // にじみ（同じ線を太く淡く重ねる）
+          if (!heavy) strokeBuckets(col, 5, 0.09);
+          strokeBuckets(col, 2.2, heavy ? 0.16 : 0.22);
+          strokeBuckets(col, 1, 0.95);
+        } else strokeBuckets(col, 1.1, 1.15);   // 紙の面：にじみなし。濃淡（不透明度）だけで強弱を出す
       });
       // 階の名前：床の板の、画面でいちばん左の角から外側へ引き出し線を出し、左の列に階の高い順で並べる（重ならないよう 16px 以上離す）
       ctx.font = "11px ui-monospace, Menlo, monospace";
@@ -601,9 +629,11 @@
       labs.forEach(function (b) {
         var tx = 8, ex = tx + b.w + 4;
         var ax = Math.max(-4000, Math.min(W + 4000, b.ax)), ay = Math.max(-4000, Math.min(H + 4000, b.ay));
-        ctx.strokeStyle = "rgba(" + WHITE + ",.35)"; ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(" + TH.ink + (TH.dark ? ",.35)" : ",.45)"); ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(ex, b.y); ctx.lineTo(Math.max(ex + 6, ax - 3), b.y); ctx.lineTo(ax, ay); ctx.stroke();
-        ctx.fillStyle = "rgba(" + WHITE + "," + (focus && b.id !== focus ? ".35" : ".85") + ")"; ctx.textAlign = "left";
+        // 文字のコントラスト（AA 4.5:1 目安）：薄表示でも dark .55／light .62 を下回らない
+        ctx.fillStyle = "rgba(" + TH.ink + "," + (focus && b.id !== focus ? (TH.dark ? ".55" : ".62") : (TH.dark ? ".85" : ".9")) + ")"; ctx.textAlign = "left";
+        ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = TH.bg; ctx.fillRect(tx - 3, b.y - 8, b.w + 6, 16); ctx.restore();   // 線が文字に重ならないよう面の色の下地
         ctx.fillText(b.t, tx, b.y);
         b.box = [tx, b.y - 7, ex, b.y + 7];
       });
@@ -626,15 +656,24 @@
               else { var t = (upto - len[i - 1]) / Math.max(1e-6, len[i] - len[i - 1]); ctx.lineTo(rp[i - 1][0] + (rp[i][0] - rp[i - 1][0]) * t, rp[i - 1][1] + (rp[i][1] - rp[i - 1][1]) * t); break; }
             }
           };
-          var dimAll = curSec >= 0 ? 0.4 : 1;
-          [[14, 0.07], [7, 0.16], [3.2, 0.55], [1.6, 1]].forEach(function (w) { path(null); ctx.lineWidth = w[0]; ctx.strokeStyle = "rgba(" + ACC + "," + (w[1] * dimAll).toFixed(3) + ")"; ctx.stroke(); });
-          if (curSec >= 0) {
-            [[18, 0.12], [8, 0.3], [3.6, 0.8], [1.8, 1]].forEach(function (w) { path(curSec); ctx.lineWidth = w[0]; ctx.strokeStyle = "rgba(" + ACC + "," + w[1] + ")"; ctx.stroke(); });
-            path(curSec); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.stroke();
+          var dimAll = curSec >= 0 ? 0.4 : 1, A = TH.acc, PP = TH.paper;
+          if (TH.dark) {   // 光る線（4 重のにじみ）
+            [[14, 0.07], [7, 0.16], [3.2, 0.55], [1.6, 1]].forEach(function (w) { path(null); ctx.lineWidth = w[0]; ctx.strokeStyle = "rgba(" + A + "," + (w[1] * dimAll).toFixed(3) + ")"; ctx.stroke(); });
+            if (curSec >= 0) {
+              [[18, 0.12], [8, 0.3], [3.6, 0.8], [1.8, 1]].forEach(function (w) { path(curSec); ctx.lineWidth = w[0]; ctx.strokeStyle = "rgba(" + A + "," + w[1] + ")"; ctx.stroke(); });
+              path(curSec); ctx.lineWidth = 1; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.stroke();
+            }
+          } else {   // 紙の面：紙の色の縁取り＋アクセント色のくっきりした太線（にじみなし）
+            path(null); ctx.lineWidth = 6; ctx.strokeStyle = "rgba(" + PP + "," + (0.9 * dimAll).toFixed(3) + ")"; ctx.stroke();
+            path(null); ctx.lineWidth = 3.4; ctx.strokeStyle = "rgba(" + A + "," + (curSec >= 0 ? 0.35 : 1) + ")"; ctx.stroke();
+            if (curSec >= 0) {
+              path(curSec); ctx.lineWidth = 7.5; ctx.strokeStyle = "rgb(" + PP + ")"; ctx.stroke();
+              path(curSec); ctx.lineWidth = 4.4; ctx.strokeStyle = "rgb(" + A + ")"; ctx.stroke();
+            }
           }
           // 推測の接続を通る区間は、琥珀色の点線を重ねる（「推」の印）
           if (routeT >= 1 && routeMeta.some(function (m) { return m.g; })) {
-            ctx.setLineDash([4, 4]); ctx.lineWidth = 2.4; ctx.strokeStyle = "rgba(" + AMBER + ",.95)";
+            ctx.setLineDash([4, 4]); ctx.lineWidth = TH.dark ? 2.4 : 2.6; ctx.strokeStyle = "rgba(" + TH.amber + ",.95)";
             ctx.beginPath();
             for (var gi = 0; gi < routeMeta.length; gi++) if (routeMeta[gi].g) { ctx.moveTo(rp[gi][0], rp[gi][1]); ctx.lineTo(rp[gi + 1][0], rp[gi + 1][1]); }
             ctx.stroke(); ctx.setLineDash([]);
@@ -645,18 +684,24 @@
             for (var j = 1; j < rp.length; j++) if (len[j] >= at) {
               var tt = (at - len[j - 1]) / Math.max(1e-6, len[j] - len[j - 1]);
               var gx = rp[j - 1][0] + (rp[j][0] - rp[j - 1][0]) * tt, gy = rp[j - 1][1] + (rp[j][1] - rp[j - 1][1]) * tt;
-              var g = ctx.createRadialGradient(gx, gy, 0, gx, gy, 14);
-              g.addColorStop(0, "rgba(255,255,255,.95)"); g.addColorStop(0.3, "rgba(" + ACC + ",.55)"); g.addColorStop(1, "rgba(" + ACC + ",0)");
-              ctx.fillStyle = g; ctx.beginPath(); ctx.arc(gx, gy, 14, 0, Math.PI * 2); ctx.fill();
+              if (TH.dark) {
+                var g = ctx.createRadialGradient(gx, gy, 0, gx, gy, 14);
+                g.addColorStop(0, "rgba(255,255,255,.95)"); g.addColorStop(0.3, "rgba(" + A + ",.55)"); g.addColorStop(1, "rgba(" + A + ",0)");
+                ctx.fillStyle = g; ctx.beginPath(); ctx.arc(gx, gy, 14, 0, Math.PI * 2); ctx.fill();
+              } else {   // 紙の面：にじみの代わりに、紙の縁のついた濃い点
+                ctx.fillStyle = "rgb(" + PP + ")"; ctx.beginPath(); ctx.arc(gx, gy, 6, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = "rgb(" + A + ")"; ctx.beginPath(); ctx.arc(gx, gy, 4, 0, Math.PI * 2); ctx.fill();
+              }
               break;
             }
           }
-          var ends = [[rp[0], AMBER], [routeT >= 1 ? rp[rp.length - 1] : null, ACC]];
+          var ends = [[rp[0], TH.amber], [routeT >= 1 ? rp[rp.length - 1] : null, A]];
           ends.forEach(function (e) {
             if (!e[0]) return;
-            ctx.strokeStyle = "rgba(" + e[1] + ",.95)"; ctx.lineWidth = 1.6;
+            if (!TH.dark) { ctx.fillStyle = "rgb(" + PP + ")"; ctx.beginPath(); ctx.arc(e[0][0], e[0][1], 8, 0, Math.PI * 2); ctx.fill(); }
+            ctx.strokeStyle = "rgba(" + e[1] + ",.95)"; ctx.lineWidth = TH.dark ? 1.6 : 2.2;
             ctx.beginPath(); ctx.arc(e[0][0], e[0][1], 6, 0, Math.PI * 2); ctx.stroke();
-            ctx.fillStyle = "rgba(" + e[1] + ",.25)"; ctx.beginPath(); ctx.arc(e[0][0], e[0][1], 11, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = "rgba(" + e[1] + (TH.dark ? ",.25)" : ",.18)"); ctx.beginPath(); ctx.arc(e[0][0], e[0][1], TH.dark ? 11 : 3, 0, Math.PI * 2); ctx.fill();
           });
         }
       }
@@ -707,7 +752,8 @@
       return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
     }
     // ── 注視点（cam.tx/ty/tz）。回転はいつもこの点まわり。画面の上では「見える範囲の中心」PIV() に置く
-    function PIV() { return [W / 2 + (PAD.l - PAD.r) / 2, H / 2 + (PAD.t - PAD.b) / 2]; }
+    // 画面の中心＝キャンバス全体の見た目の中心（階の名前の列やボタンが重なっていても、目に見える真ん中）
+    function PIV() { return [W / 2, H / 2]; }
     // 画面の点 (sx, sy) の下にある、高さ h の水平面の上の点（proj の逆）。面と交わらなければ null
     function unproject(sx, sy, h) {
       var D = camDist(), f = fovF(), u = (sx - W / 2 - fit.ox) / f, v = -(sy - H / 2 - fit.oy) / f;
@@ -716,6 +762,57 @@
       var t = (h - cam.ty + D * sp) / den; if (t < 1) return null;
       var x1 = u * t, y2 = v * t, z2 = t - D, z1 = -y2 * sp + z2 * cp;
       return [x1 * cy_ + z1 * sy_ + cam.tx, h, -x1 * sy_ + z1 * cy_ + cam.tz];
+    }
+    // 画面の点 (sx, sy) を通る視線の上で、奥行き d（proj の 3 番目の値）の点
+    function unprojectDepth(sx, sy, d) {
+      var D = camDist(), f = fovF(), u = (sx - W / 2 - fit.ox) / f, v = -(sy - H / 2 - fit.oy) / f;
+      var cy_ = Math.cos(cam.yaw), sy_ = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+      var x1 = u * d, y2 = v * d, z2 = d - D;
+      var y = y2 * cp + z2 * sp, z1 = -y2 * sp + z2 * cp;
+      return [x1 * cy_ + z1 * sy_ + cam.tx, y + cam.ty, -x1 * sy_ + z1 * cy_ + cam.tz];
+    }
+    // 回転の中心を採る：画面の中心の視線の上で、描いている物（線・階段/エスカレーターのモデル・ルートの線）のうち
+    // 中心から PICK_PX 以内に見える最も手前の物の奥行き。なければ床の板（見ている階を優先・次に手前の板）。それもなければ注視点の高さの水平面
+    var PICK_PX = 10;
+    function pickPivot() {
+      var c = PIV(), D = camDist(), f = fovF(), best = null;
+      function tryLine(a, b) {
+        var qa = proj(a, D, f), qb = proj(b, D, f); if (!qa || !qb) return;
+        var dx = qb[0] - qa[0], dy = qb[1] - qa[1], l = dx * dx + dy * dy, t = l ? ((c[0] - qa[0]) * dx + (c[1] - qa[1]) * dy) / l : 0;
+        t = t < 0 ? 0 : t > 1 ? 1 : t;
+        if (Math.hypot(qa[0] + dx * t - c[0], qa[1] + dy * t - c[1]) > PICK_PX) return;
+        var d = qa[2] + (qb[2] - qa[2]) * t;
+        if (!best || d < best.d) best = { d: d, src: "line" };
+      }
+      for (var i = 0; i < segs.length; i++) {
+        var s = segs[i];
+        if (s[7] && hidden[s[7]]) continue;
+        if (s[4] === "floor" && s[7] == null && s[6] == null && s[2] <= 0.22) continue;   // 床の板の枠は下の「板」で扱う
+        if (focus && levelMul(s) < 1) continue;   // 薄く出している階は選ばない
+        tryLine(s[0], s[1]);
+      }
+      if (route) for (i = 1; i < route.length; i++) tryLine(route[i - 1], route[i]);
+      if (!best) {   // 床の板：視線と各階の水平面の交点が、その階の板の中にあるか
+        st.levels.forEach(function (l) {
+          var b = slabs[l.id]; if (!b) return;
+          if (scope && !scope.levels[l.id]) return;
+          if (focus && l.id !== focus) return;
+          var q = unproject(c[0], c[1], zOf(l.id, 0)); if (!q) return;
+          var wx = q[0] + cx, wy = q[2] + cy;
+          if (wx < b[0] || wx > b[2] || wy < b[1] || wy > b[3]) return;
+          var pq = proj(q, D, f); if (pq && (!best || pq[2] < best.d)) best = { d: pq[2], src: "slab" };
+        });
+      }
+      if (best) return { p: unprojectDepth(c[0], c[1], best.d), src: best.src };
+      var h = unproject(c[0], c[1], cam.ty);
+      return h ? { p: h, src: "plane" } : null;
+    }
+    var lastPick = null;
+    // 回し始め：中心の下の点を注視点にする（見た目は変えない）。回転中はこの点のまま
+    function beginRotate() {
+      anim = null;
+      var r = pickPivot(); lastPick = r ? { src: r.src, p: r.p.slice() } : null; if (!r) return;
+      cam.tx = r.p[0]; cam.ty = r.p[1]; cam.tz = r.p[2]; fit.ox = 0; fit.oy = 0;
     }
     function clampT() { var lim = R * 1.2; cam.tx = Math.max(-lim, Math.min(lim, cam.tx)); cam.tz = Math.max(-lim, Math.min(lim, cam.tz)); }
     // 見た目を変えずに、画面の中心 PIV() に見えている点を注視点にし直す（区間送り・自動フィットのずれ fit.ox/oy を畳む）
@@ -742,13 +839,14 @@
       if (a && b) { cam.tx -= b[0] - a[0]; cam.tz -= b[2] - a[2]; clampT(); }
       kick();
     }
-    function rotate(dyaw, dpitch) { if (anim) rebase(); cam.yaw += dyaw; cam.pitch = clampP(cam.pitch + dpitch); }
+    function rotate(dyaw, dpitch) { if (anim) beginRotate(); cam.yaw += dyaw; cam.pitch = clampP(cam.pitch + dpitch); }
     function local(e) { var r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
     canvas.addEventListener("pointerdown", function (e) {
       canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
       pts[e.pointerId] = { x: e.clientX, y: e.clientY };
       drag = { active: true, pinch: count() === 2 ? pinchInfo() : null, t: performance.now(), shift: !!e.shiftKey };
-      vel.yaw = vel.pitch = 0; if (!anim) rebase();
+      vel.yaw = vel.pitch = 0;
+      if (count() === 1 && !drag.shift) beginRotate(); else rebase();   // 1 本指の回し始めごとに中心を採り直す（ズーム・パンの後も必ず）
     });
     canvas.addEventListener("pointermove", function (e) {
       var q = pts[e.pointerId]; if (!q) return;
@@ -781,7 +879,7 @@
     canvas.addEventListener("wheel", function (e) { e.preventDefault(); var q = local(e); zoomBy(Math.exp(-e.deltaY * 0.0015), q[0], q[1]); }, { passive: false });
     canvas.addEventListener("keydown", function (e) {
       var k = e.key, used = true;
-      if (k === "ArrowLeft" || k === "ArrowRight" || k === "ArrowUp" || k === "ArrowDown") rebase();
+      if (k === "ArrowLeft" || k === "ArrowRight" || k === "ArrowUp" || k === "ArrowDown") beginRotate();
       if (k === "ArrowLeft") rotate(0.12, 0); else if (k === "ArrowRight") rotate(-0.12, 0);
       else if (k === "ArrowUp") rotate(0, 0.08); else if (k === "ArrowDown") rotate(0, -0.08);
       else if (k === "+" || k === "=") zoomBy(1.15); else if (k === "-" || k === "_") zoomBy(1 / 1.15);
@@ -815,7 +913,8 @@
       reset: function () { cam.yaw = HOME.yaw; cam.pitch = HOME.pitch; vel.yaw = vel.pitch = 0; anim = null; if (route) { curSec = -1; fitRoute(true); } else fitView(); kick(); },
       setSpread: function (on) { spreadTo = on ? SPREAD[1] : SPREAD[0]; if (reduced()) { spread = spreadTo; route = buildRoute(lastR); rebuild(); } kick(); },
       resume: function () { alive = true; last = 0; resize(); },
-      destroy: function () { alive = false; if (raf) cancelAnimationFrame(raf); raf = 0; if (ro) ro.disconnect(); },
+      destroy: function () { alive = false; if (raf) cancelAnimationFrame(raf); raf = 0; if (ro) ro.disconnect(); if (mo) mo.disconnect(); },
+      _theme: function () { return Object.assign({}, TH); },
       /** ルートの近くの施設：shown＝描く記号の数（まとめた後）、items＝範囲の中の施設の数、all＝駅の全部の数 */
       nearInfo: function () { return { shown: near.length, items: nearCount, all: glyphs.length, list: near.map(function (g) { return { kind: g.kind, n: g.n, id: g.id, d: +g.d.toFixed(1), level: g.level, goal: g.goal }; }) }; },
       _state: function () { return { cam: Object.assign({}, cam), k: fit.k, spread: spread, routeT: routeT, segs: segs.length, running: !!raf, section: curSec, scoped: !!scope, fitted: fitted ? Object.assign({}, fitted) : null }; },
@@ -830,7 +929,9 @@
       _pivot: function () { return { t: [cam.tx, cam.ty, cam.tz], screen: proj([cam.tx, cam.ty, cam.tz], camDist(), fovF()), center: PIV() }; },
       _unproject: function (sx, sy, h) { return unproject(sx, sy, h == null ? floorH() : h); },
       _projW: function (p) { return proj(p, camDist(), fovF()); },
-      _rotate: function (dy, dp) { rebase(); rotate(dy, dp); kick(); },
+      _rotate: function (dy, dp) { beginRotate(); rotate(dy, dp); kick(); },
+      _pick: function () { var r = pickPivot(); return r ? { p: r.p, src: r.src, screen: proj(r.p, camDist(), fovF()) } : null; },
+      _lastPick: function () { return lastPick; },
       _zoomAt: function (m, sx, sy) { zoomBy(m, sx, sy); },
       _pan: function (dx, dy) { pan(dx, dy); },
       _zoomLimits: function () { return { min: ZMIN, max: ZMAX }; },
