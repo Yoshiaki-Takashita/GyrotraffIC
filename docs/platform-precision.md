@@ -34,10 +34,10 @@
 | データ源 | 出入口 | ホーム（番線） | バス停の標柱・向き | ライセンス（詳細は `data-pipeline.md`） | 確度 |
 |---|---|---|---|---|---|
 | GTFS（一般） | `stops.txt` の `location_type=2` | `location_type=0`＋`platform_code`、`location_type=4`（乗車位置） | 標柱＝`location_type=0` の各行 | フィードごと | [PROVEN：GTFS 仕様] |
-| GTFS-JP（国交省・バス） | 原則なし | — | 標柱ごとに 1 行のことが多い。親停留所の有無はフィード次第 | フィードごと（CC BY 推奨） | [UNKNOWN：仕様の `location_type`・`parent_station` の扱いは検証中（`review-architecture.md`）] |
-| ODPT（鉄道） | `odpt:Station` に「駅出入口を表す ID のリスト（`odpt:exit`。ID は `ug:Poi` の `@id`）」がある。つまり出入口は別の地物（POI）として提供されうる | 列車時刻表の各停車（`odpt:TrainTimetableObject`）に「プラットフォームの番号（`odpt:platformNumber`）」がある | — | ODPT の各ライセンス（東京メトロは基本ライセンス、都営は CC BY 4.0 [PROVEN：https://ckan.odpt.org/dataset/r_train_timetable-tokyometro ・ https://ckan.odpt.org/dataset/r_train_timetable-toei]） | 属性の定義は [ARGUED：有志の OpenAPI 定義 https://github.com/sophie-app/odpt-openapi `src/models/train.tsp`]。**どの事業者が埋めているかは [UNKNOWN]**（登録完了後に確認） |
+| GTFS-JP（国交省・第 4.0 版） | `location_type=2`（出入口）が仕様にある。`pathways.txt` は任意の「Pathways 拡張」（作成者が管理する通路だけ。日本の駅は共用が多いため）、`levels.txt` はエレベーターがある時に必須 | `platform_code`（番線・乗り場番号。名前には入れない）、`location_type=4`（乗車エリア） | 標柱ごとに 1 行（`location_type` 0）。標柱は歩道側に置く。標柱が片側にしか無く反対側にも停まる時は両側に乗り場を作る。複数路線が 1 本の標柱を使う時は乗り場は 1 つ。親 station は任意。**向きの専用項目は無い** | フィードごと（CC BY 推奨） | [PROVEN：https://www.mlit.go.jp/commmmons/document/007/ ]。各フィードがどこまで埋めているかは [UNKNOWN] |
+| ODPT（鉄道） | `odpt:Station` に「駅出入口を表す ID のリスト（`odpt:exit`。ID は `ug:Poi` の `@id`）」と `odpt:barrierfreeFacility` の語彙がある。ただし **出入口の独立したデータセットはカタログに無く、旧 API の `odpt:StationFacility` は廃止** [PROVEN：https://ckan.odpt.org/dataset/?q=駅出入口（0 件）。廃止は有志の記事による [ARGUED]]。出入口の主な出どころは OSM と自前の実測になる | 列車時刻表の各停車（`odpt:TrainTimetableObject`）に「プラットフォームの番号（`odpt:platformNumber`）」がある | — | ODPT の各ライセンス（東京メトロは基本ライセンス、都営は CC BY 4.0 [PROVEN：https://ckan.odpt.org/dataset/r_train_timetable-tokyometro ・ https://ckan.odpt.org/dataset/r_train_timetable-toei]） | 属性の定義は [ARGUED：有志の OpenAPI 定義 https://github.com/sophie-app/odpt-openapi `src/models/train.tsp`]。**どの事業者が埋めているかは [UNKNOWN]**（登録完了後に確認） |
 | OpenStreetMap | `railway=subway_entrance`（地下鉄出入口の点。`ref`＝出入口番号、`name`、`wheelchair`、`oneway`、`stop_area` 関係に所属）[PROVEN：https://wiki.openstreetmap.org/wiki/Tag:railway%3Dsubway_entrance]。地上駅の出入口は `entrance=*`＋建物 | `public_transport=platform`（＋`railway=platform`）に `local_ref`（番線）、`level`、`layer` [PROVEN：https://wiki.openstreetmap.org/wiki/Tag:public_transport%3Dplatform] | `public_transport=platform`＋`highway=bus_stop` の点。向きの専用タグは同ページに無い [PROVEN：同上] | ODbL [PROVEN：https://www.openstreetmap.org/copyright] | 網羅度は地域差 [UNKNOWN：首都圏の主要駅の出入口の網羅率を段階 1 で数える] |
-| 国土数値情報 | なし | なし | バス停留所（P11）は点。向き・標柱の区別は無いと理解 | 政府標準利用規約（検証中） | [UNKNOWN：検証中] |
+| 国土数値情報 | なし | なし | バス停留所（P11、2022 年）は点。向き・標柱の区別は無いと理解 [GUESS] | P11（2022）・鉄道 N02（2020 年以降）は CC BY 4.0。空港 C28（2021）は「商用可」の旧約款、港湾 C02（2014）は「非商用」 | [PROVEN：https://nlftp.mlit.go.jp/ksj/other/agreement.html と各データのページ] |
 | 事業者の公式サイト・構内図（PDF・画像） | あり（図） | あり（図） | あり（図） | **自動取得はしない**。人が読んで入力するのも、利用条件を確認した事業者だけ | [ARGUED：規約上の安全側] |
 | 自前の実測 | 現地で GPS・写真・歩測 | 同 | 同 | 自前（任意のライセンス） | A 段階の主な出どころ |
 
@@ -93,7 +93,7 @@ Position {
 
 1. GTFS-JP で標柱ごとに別の `stop_id` が付いていれば、それぞれを StopPoint にする。親停留所があれば Station に、無ければ名前と距離（例 100 m [GUESS]）で Station を作る。
 2. 向きの決め方（優先順）：
-   1. データに向き・方面の属性があればそれ [UNKNOWN：GTFS-JP の該当項目は検証中]。
+   1. データに方面の属性があればそれ（GTFS の `stop_headsign`・`direction_id`。GTFS-JP に標柱の向きの専用項目は無い [PROVEN：2 章の表]）。
    2. その標柱を通る便の **次の停留所**（複数あれば最頻のもの）への方位角を向きにする。`shapes.txt` があればその線上の最近傍点の進行方向。方法は `derived_trip`、段階 C。
    3. 日本は左側通行なので、進行方向に対して **道路の左側** に標柱があると仮定し、OSM の道路の中心線から左に 3〜5 m [GUESS] ずらした点を表示位置の候補にする（データの座標が道路の中心に置かれている場合の補正。元の座標が歩道側ならそのまま）。
 3. 表示は「○○方面」（次の主要停留所名か `stop_headsign`）＋方位角から作った「北行き」等。**同名の反対側の標柱を同じ点に描かない**。
@@ -107,10 +107,10 @@ Position {
 | 番線 | 路線×方向の乗り場 | 「番線は未確認」 |
 | 構内の歩行時間 | 距離からの推定（`core-design.md` 4.5） | 「乗り換え 約 5 分（推定）」 |
 | バス停の向き | 便の方角から計算（段階 C） | 「○○方面（位置は目安）」 |
-| 駅そのものの座標 | 国土数値情報（鉄道駅）か OSM の `railway=station` [UNKNOWN：国土数値情報の利用条件は検証中] | — |
+| 駅そのものの座標 | 国土数値情報 鉄道（N02、2020 年以降は CC BY 4.0）か OSM の `railway=station` | — |
 | 何も無い | 名前だけ。リンク | 「位置情報なし」 |
 
-- 外部地図へのリンク：Google Maps URLs（検索・経路のリンク）、Apple の `maps.apple.com` のリンク。**リンクで渡すだけ**なら料金も保存制限も掛からないと理解している [UNKNOWN：Google Maps URLs の規約は検証中（`review-architecture.md`）]。リンクには「名前」か「丸めた座標」を入れ、自宅等の登録地点の座標は入れない（`accounts-privacy.md` T7）。
+- 外部地図へのリンク：Google Maps URLs（検索・経路のリンク）、Apple の `maps.apple.com` のリンク。Google Maps URLs は「API キー不要」「URL は 2,048 文字まで」と公式に書かれ、料金表に項目は無い [PROVEN：https://developers.google.com/maps/documentation/urls/get-started]。「無料」と明記した文は見つからなかったので、利用規約上の扱いは [UNKNOWN]（`review-architecture.md` #18）。リンクには「名前」か「丸めた座標」を入れ、自宅等の登録地点の座標は入れない（`accounts-privacy.md` T7）。
 
 ## 8. 実測（自前調査）の手順（段階 2 で主要 50 駅）
 
@@ -136,8 +136,7 @@ Position {
 
 ## 11. 未決定・未確認
 - [UNKNOWN] ODPT の出入口（`odpt:exit` → `ug:Poi`）・番線（`odpt:platformNumber`）を **実際に埋めている事業者** と網羅度（登録後）。
-- [UNKNOWN] GTFS-JP の標柱・親停留所・向きの項目の実態。
-- [UNKNOWN] 国土数値情報の利用条件。
-- [UNKNOWN] Google Maps URLs・Apple Maps のリンクの規約（検証中）。
+- [UNKNOWN] GTFS-JP の各フィードが親 station・`platform_code`・`pathways.txt` をどこまで埋めているか（仕様上は任意）。
+- [UNKNOWN] Google Maps URLs を「無料」と明記した公式文、Apple Maps のリンク（`maps.apple.com`）の規約。
 - [GUESS] 距離の閾値（150 m・100 m・10 m・50 m）、階の固定秒、網羅率の目標値。段階 1・2 で実データから決める。
 - 決めてもらうこと：利用者からの修正の受付を段階 2 に入れるか（`roadmap.md`）。

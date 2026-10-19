@@ -36,7 +36,7 @@
 
 ## 3. データモデル（エンジンの入力）
 
-GTFS（静的）の語彙をそのまま使い、足りない所だけ拡張する。GTFS の `stops.txt` は `location_type` で「乗り場（0）・駅（1）・出入口（2）・構内ノード（3）・乗車位置（4）」を区別でき、`pathways.txt`・`levels.txt` で構内通路と階を表せる [PROVEN：GTFS Schedule Reference、本文中の値は gtfs.org の仕様に基づく。`review-architecture.md` の検証表を参照]。
+GTFS（静的）の語彙をそのまま使い、足りない所だけ拡張する。GTFS の `stops.txt` は `location_type` で「乗り場（0）・駅（1）・出入口（2）・構内ノード（3）・乗車位置（4）」を区別でき、`pathways.txt`・`levels.txt` で構内通路と階を表せる [PROVEN：https://gtfs.org/documentation/schedule/reference/ 。`review-architecture.md` #23]。
 
 ### 3.1 要素の一覧
 
@@ -72,7 +72,7 @@ GTFS（静的）の語彙をそのまま使い、足りない所だけ拡張す�
 
 ### 3.4 日本の「同じ駅が何度も出てくる」問題と駅の束
 
-- 事象：ODPT の駅 ID は **事業者 × 路線 × 駅** の単位で、渋谷は銀座線・半蔵門線・東横線…で別の ID になる [ARGUED：ODPT の ID 体系 `odpt.Station:<事業者>.<路線>.<駅>` の形から。実データは登録完了後に確認]。ODPT の `odpt:Station` には「乗り換え可能路線（`odpt:connectingRailway`）」「乗り換え可能駅（`odpt:connectingStation`）」の属性があり、これが束の根拠①になる [ARGUED：有志が ODPT 仕様を写した OpenAPI 定義（https://github.com/sophie-app/odpt-openapi `src/models/train.tsp`）で確認。公式仕様は登録後に照合]。GTFS-JP のバス停は標柱（乗り場）ごとに 1 行で、親停留所が無い場合がある [UNKNOWN：フィードごとに差がある。取り込み時に統計を取る]。
+- 事象：ODPT の駅 ID は **事業者 × 路線 × 駅** の単位で、渋谷は銀座線・半蔵門線・東横線…で別の ID になる [ARGUED：ODPT の ID 体系 `odpt.Station:<事業者>.<路線>.<駅>` の形から。実データは登録完了後に確認]。ODPT の `odpt:Station` には「乗り換え可能路線（`odpt:connectingRailway`）」「乗り換え可能駅（`odpt:connectingStation`）」の属性があり、これが束の根拠①になる [ARGUED：有志が ODPT 仕様を写した OpenAPI 定義（https://github.com/sophie-app/odpt-openapi `src/models/train.tsp`）で確認。公式仕様は登録後に照合]。GTFS-JP（第 4.0 版）では、バス停は **標柱ごとに 1 行**（`location_type` 0）、親 station（`location_type` 1）は **任意**、複数路線が同じ標柱を使う時は乗り場は 1 つ、乗り場番号は `platform_code` に入れる [PROVEN：国交省の仕様書 https://www.mlit.go.jp/commmmons/document/007/ 。ODPT には同じ京都市バスの「親子設定」版と「標柱のみ」版が並んでいる]。したがって親の無いフィードでは 3.4 の束ね方②〜③が要る。
 - 方針：
   1. **物理の乗り場（StopPoint）は決して統合しない。** 統合すると「どの番線か」の情報が消える。
   2. 「駅の束（Station）」を作る。束の根拠は、強い順に、①データ源が示す接続情報（GTFS の `parent_station`、ODPT の接続駅の属性 [UNKNOWN：属性名はデータ入手後に確認]）、②同じ事業者内の同名駅、③距離（例 鉄道 200 m・バス 100 m 以内 [GUESS]）＋名前の正規化一致（「駅」「前」の有無、全角半角、読み）、④人手の対応表（主要駅）。
@@ -141,8 +141,9 @@ GTFS（静的）の語彙をそのまま使い、足りない所だけ拡張す�
 
 ### 5.1 直通運転（through service）
 
-- 事象：東京の地下鉄は私鉄・JR と相互直通し、1 本の列車が複数事業者の複数路線を走る。データ上は、事業者・路線ごとに別の Trip に切られ、前後の Trip への参照で結ばれる形が多い [ARGUED：ODPT の `odpt:TrainTimetable` には「直前の列車時刻表（`odpt:previousTrainTimetable`）」「直後の列車時刻表（`odpt:nextTrainTimetable`）」の **ID のリスト** がある（出どころは 3.4 と同じ有志の OpenAPI 定義）。リストなので 1 対多（分割・併結）も表せる。どの事業者がどこまで埋めているかは実データで確認 [UNKNOWN]]。GTFS では `transfers.txt` の `transfer_type=4/5`（座ったまま／降りて同じ車両に再乗車）で便同士を結べる [PROVEN：GTFS 仕様。検証表を参照]。
+- 事象：東京の地下鉄は私鉄・JR と相互直通し、1 本の列車が複数事業者の複数路線を走る。データ上は、事業者・路線ごとに別の Trip に切られ、前後の Trip への参照で結ばれる形が多い [ARGUED：ODPT の `odpt:TrainTimetable` には「直前の列車時刻表（`odpt:previousTrainTimetable`）」「直後の列車時刻表（`odpt:nextTrainTimetable`）」の **ID のリスト** がある（出どころは 3.4 と同じ有志の OpenAPI 定義）。リストなので 1 対多（分割・併結）も表せる。どの事業者がどこまで埋めているかは実データで確認 [UNKNOWN]]。GTFS では `transfers.txt` の `transfer_type=4/5`（座ったまま／降りて同じ車両に再乗車。`from_trip_id`／`to_trip_id` 必須、同じ車両で運行されること）で便同士を結べる [PROVEN：https://gtfs.org/documentation/schedule/reference/]。GTFS-JP（第 4.0 版）は直通を **`block_id`** で表す：「一つの便が終点に着いたあとそのまま別の便として運行し、乗客が継続して乗車できる場合、…同一の block_id を設定」（路線 A の便 → 路線 B の便、1 本の便を複数路線にまたがらせない）[PROVEN：国交省の仕様書 補足 3「ブロック結合」]。OTP 2 も `block_id` から座ったまま乗り換えを作る（`blockBasedInterlining`、既定で有効、`maxInterlineDistance` 200 m）[PROVEN：https://docs.opentripplanner.org/en/latest/BuildConfiguration/]。
 - 方針：
+  0. 連結の根拠は 3 通りを同じ内部表現（便間の `Transfer`、種別＝座ったまま）に正規化する：GTFS の `transfers.txt` type 4、GTFS-JP／GTFS の `block_id`（同じブロック内で前の便の終点＝次の便の始点、停留所が同じか近接、時刻が整合）、ODPT の `previousTrainTimetable`／`nextTrainTimetable`。
   1. **1 対 1 の連結**（A の終点＝B の始点、同じ停留所、A の到着≦B の出発）は前処理で **1 本の論理 Trip に連結** する。停車列は連結し、Pattern も連結後の列で作る。表示では事業者・路線の切れ目を Leg の中の「区切り」として出す（乗り換え回数は増やさない）。
   2. **1 対多・多対 1（分割・併結）** は連結せず、便間の「乗り換え 0 回・時間 0」の特別な Transfer として扱う。RAPTOR では「降りて同じ停留所で別の便に乗る」をラウンド内で許す必要があるため、ラウンドの中で「便間接続」を先に適用してから通常の乗り換えに進む [ARGUED：ラウンド数＝乗り換え回数の意味を保つための拡張。差分テストで OTP の interlining と比較する]。
   3. 連結の根拠（データ源の参照／名前と時刻の一致による推定）をレコードに残す。推定の連結は既定で **使わない**（誤った直通は「乗り換え不要」という誤情報になる）[ARGUED]。
@@ -180,9 +181,9 @@ GTFS（静的）の語彙をそのまま使い、足りない所だけ拡張す�
 
 | 場面 | 既定値 | 根拠 |
 |---|---|---|
-| 国内線・乗る前（預け荷物なし） | 保安検査の締切 ＋ 空港内移動 ＋ 安全余裕 | 航空会社の締切時刻は公式ページに基づいて `review-architecture.md` の検証表に記す。締切そのものではなく **締切＋利用者が安心できる余裕** を既定にする。数値は検証後に確定 [UNKNOWN：検証中] |
-| 国内線・乗る前（預け荷物あり） | 上に手荷物の締切の差を加算 | 同上 |
-| 国際線・乗る前 | 航空会社の推奨到着時刻（例 2〜3 時間）[UNKNOWN：検証中] | 同上 |
+| 国内線・乗る前（預け荷物なし） | **40 分**（＝保安検査の締切 20 分前 ＋ 空港内の移動と列 20 分 [GUESS]） | 公式の締切：JAL 国内線は 保安検査場の通過 **出発 20 分前**、搭乗口 **10 分前** [PROVEN：https://www.jal.co.jp/jp/ja/dom/boarding_attention/]。ANA 国内線は 搭乗口 10 分前 [PROVEN：https://www.ana.co.jp/ja/jp/guide/boarding-procedures/checkin/domestic/flow_airport/]、保安検査 20 分前は 2019 年の報道で確認、現在の公式ページには分数の記載なし [ARGUED：https://www.aviationwire.jp/archives/181535] |
+| 国内線・乗る前（預け荷物あり） | **55 分**（＝手荷物預けの締切 30 分前 ＋ 25 分 [GUESS]） | JAL：羽田発は 2026-09-01 から手荷物預けの締切が **出発 30 分前**（他空港は目安）[PROVEN：同上]。ANA：2026 年 9 月から羽田発の手荷物預かりは出発 30 分前で終了 [PROVEN：同上] |
+| 国際線・乗る前 | **120 分**（＝搭乗手続きの締切 60 分前 ＋ 60 分 [GUESS]） | JAL・ANA とも国際線は **出発 60 分前までに搭乗手続き**、搭乗口は 30 分前目安・10 分前締切 [PROVEN：https://www.jal.co.jp/jp/ja/inter/boarding_attention/ 、https://www.ana.co.jp/ja/jp/guide/boarding-procedures/checkin/international/procedure/]。「2〜3 時間前に到着」と明記した公式文は見つからず（ANA の海外空港のカウンターは多くが 3 時間前に開く [PROVEN：https://www.ana.co.jp/ja/jp/guide/boarding-procedures/checkin/international/counter_open/]） |
 | 降りた後（預け荷物なし／あり） | 10〜15 分／25〜35 分 [GUESS] | 実測が無い。利用者が設定で変えられる |
 | 飛行機→飛行機の最小乗継時間 | 空港ごとの MCT。無料で入手できる公的な一覧は **確認できていない** [UNKNOWN] | 無い場合は 国内→国内 60 分、国内↔国際 90〜120 分 [GUESS] を既定にし「目安」と表示 |
 
@@ -264,8 +265,8 @@ GTFS（静的）の語彙をそのまま使い、足りない所だけ拡張す�
 ## 12. 未決定・未確認の一覧
 
 - [UNKNOWN] ODPT の駅・列車時刻表の実データの中身。属性の **定義**（直通の参照 `previousTrainTimetable`／`nextTrainTimetable`、接続駅 `connectingStation`、番線 `platformNumber`、出入口 `exit`）は有志の OpenAPI 定義で確認できたが、**事業者ごとにどこまで埋まっているか** は登録完了後に最初に確認する。
-- [UNKNOWN] GTFS-JP のバス停の親子関係・標柱の扱いの実態（フィードごと）。
-- [UNKNOWN] 航空会社の公式の締切時刻と推奨到着時刻（検証中。`review-architecture.md` に記す）。
+- [UNKNOWN] GTFS-JP の各フィードが親 station・`platform_code`・`block_id`・`pathways.txt` をどの程度埋めているか（仕様上は任意のものが多い。取り込み時に統計を取る）。
+- [UNKNOWN] ANA 国内線の保安検査の締切の **現行の公式記載**（報道では 20 分前。公式ページには分数が無い）。
 - [UNKNOWN] 無料で使える最小乗継時間（MCT）の出どころ。
 - [GUESS] 10 章の数値すべて。段階 1 で実測する。
 - 決めてもらうこと（`roadmap.md` に集約）：飛行機を同じエンジンに入れる方式（本書の推奨）で進めてよいか。
