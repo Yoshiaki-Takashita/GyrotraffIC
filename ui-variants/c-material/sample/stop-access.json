@@ -1,0 +1,15 @@
+{
+  "format": "gyrotraffic-stop-access-v0",
+  "_synthetic": "架空の乗り場の位置情報。コアはまだ出さない（中枢の設計 3 章の STOP_POINT・ENTRANCE に相当する推の形）。confidence は confirmed＝確・inferred＝推・unknown＝不明。",
+  "stops": {
+    "HOKU1": { "platform": "1番線", "entrance": "北口（階段・エレベーターあり）", "confidence": "confirmed", "source": "事業者の構内図（架空）" },
+    "CHUO_M": { "platform": "環線 2番線", "entrance": null, "confidence": "inferred", "source": "OSM の駅の形から推定（架空）" },
+    "CHUO_K": { "platform": "空港線 5番線", "entrance": null, "confidence": "confirmed", "source": "事業者の構内図（架空）" },
+    "MINA": { "platform": null, "entrance": "東口", "confidence": "inferred", "source": "OSM の出入口（架空）" },
+    "BUS_MINA": { "platform": "3番乗り場", "heading": "海浜公園方面（南向き）", "confidence": "inferred", "source": "GTFS の停留所位置から推定（架空）" },
+    "BUS_KAI": { "platform": null, "confidence": "unknown", "source": null },
+    "AIR_A": { "platform": "第1ターミナル（架空）", "terminalNote": "搭乗手続きは出発の 30 分前まで（推）", "confidence": "inferred", "source": "既定値（コアの ModeProfile・air 30 分）" },
+    "AIR_B": { "platform": "到着ロビー 1階", "confidence": "unknown", "source": null },
+    "NISHI": { "platform": null, "confidence": "unknown", "source": null }
+  }
+}
