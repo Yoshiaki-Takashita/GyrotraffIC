@@ -35,7 +35,7 @@
 |---|---|---|---|---|---|
 | GTFS（一般） | `stops.txt` の `location_type=2` | `location_type=0`＋`platform_code`、`location_type=4`（乗車位置） | 標柱＝`location_type=0` の各行 | フィードごと | [PROVEN：GTFS 仕様] |
 | GTFS-JP（国交省・バス） | 原則なし | — | 標柱ごとに 1 行のことが多い。親停留所の有無はフィード次第 | フィードごと（CC BY 推奨） | [UNKNOWN：仕様の `location_type`・`parent_station` の扱いは検証中（`review-architecture.md`）] |
-| ODPT（鉄道） | 駅施設の情報（出入口・エレベーター等）が **一部の事業者** にあると理解している | 列車時刻表に番線（`platform`）がある事業者がある | — | ODPT の各ライセンス | [UNKNOWN：登録完了後に実データで確認。検証中] |
+| ODPT（鉄道） | `odpt:Station` に「駅出入口を表す ID のリスト（`odpt:exit`。ID は `ug:Poi` の `@id`）」がある。つまり出入口は別の地物（POI）として提供されうる | 列車時刻表の各停車（`odpt:TrainTimetableObject`）に「プラットフォームの番号（`odpt:platformNumber`）」がある | — | ODPT の各ライセンス（東京メトロは基本ライセンス、都営は CC BY 4.0 [PROVEN：https://ckan.odpt.org/dataset/r_train_timetable-tokyometro ・ https://ckan.odpt.org/dataset/r_train_timetable-toei]） | 属性の定義は [ARGUED：有志の OpenAPI 定義 https://github.com/sophie-app/odpt-openapi `src/models/train.tsp`]。**どの事業者が埋めているかは [UNKNOWN]**（登録完了後に確認） |
 | OpenStreetMap | `railway=subway_entrance`（地下鉄出入口の点。`ref`＝出入口番号、`name`、`wheelchair`、`oneway`、`stop_area` 関係に所属）[PROVEN：https://wiki.openstreetmap.org/wiki/Tag:railway%3Dsubway_entrance]。地上駅の出入口は `entrance=*`＋建物 | `public_transport=platform`（＋`railway=platform`）に `local_ref`（番線）、`level`、`layer` [PROVEN：https://wiki.openstreetmap.org/wiki/Tag:public_transport%3Dplatform] | `public_transport=platform`＋`highway=bus_stop` の点。向きの専用タグは同ページに無い [PROVEN：同上] | ODbL [PROVEN：https://www.openstreetmap.org/copyright] | 網羅度は地域差 [UNKNOWN：首都圏の主要駅の出入口の網羅率を段階 1 で数える] |
 | 国土数値情報 | なし | なし | バス停留所（P11）は点。向き・標柱の区別は無いと理解 | 政府標準利用規約（検証中） | [UNKNOWN：検証中] |
 | 事業者の公式サイト・構内図（PDF・画像） | あり（図） | あり（図） | あり（図） | **自動取得はしない**。人が読んで入力するのも、利用条件を確認した事業者だけ | [ARGUED：規約上の安全側] |
@@ -83,7 +83,7 @@ Position {
 
 ## 5. ホーム（番線）の作り方
 
-1. 時刻表データの StopPoint に番線があれば（GTFS の `platform_code`、ODPT の列車時刻表の番線 [UNKNOWN：属性の有無は要確認]）それを正とする。
+1. 時刻表データの StopPoint に番線があれば（GTFS の `platform_code`、ODPT の列車時刻表の `odpt:platformNumber` [ARGUED：2 章の表]）それを正とする。ODPT では「駅 × 番線」の乗り場を列車時刻表から **逆算して作る**（駅情報そのものには番線の一覧が無いため）[ARGUED：`odpt:Station` の属性一覧に番線が無い]。
 2. OSM の `public_transport=platform` の `local_ref` と突き合わせ、位置を得る。
 3. 番線が時刻表側に無い場合は、**乗り場＝路線×方向** の粒度で止め、「番線不明」と出す。推測で番線を付けない [ARGUED]。
 4. 同じホームを複数の路線が共用する場合（直通運転の典型）、StopPoint の等価関係（`core-design.md` 5.2）で結ぶ。根拠が弱い等価関係は張らない。
@@ -135,7 +135,7 @@ Position {
 - **ゴールデン**：「渋谷 A3 出口→銀座線ホーム」など 20 組の歩行時間を実測し、推定との差を記録。推定の係数をそこから調整する。
 
 ## 11. 未決定・未確認
-- [UNKNOWN] ODPT の駅施設・番線データの有無と事業者ごとの網羅度（登録後）。
+- [UNKNOWN] ODPT の出入口（`odpt:exit` → `ug:Poi`）・番線（`odpt:platformNumber`）を **実際に埋めている事業者** と網羅度（登録後）。
 - [UNKNOWN] GTFS-JP の標柱・親停留所・向きの項目の実態。
 - [UNKNOWN] 国土数値情報の利用条件。
 - [UNKNOWN] Google Maps URLs・Apple Maps のリンクの規約（検証中）。
