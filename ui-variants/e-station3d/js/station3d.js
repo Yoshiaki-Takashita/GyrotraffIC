@@ -699,27 +699,56 @@
     function kick() { if (!raf && alive) raf = requestAnimationFrame(frame); }
     function clampP(p) { return Math.min(90 * DEG, Math.max(12 * DEG, p)); }   // ピッチは 12°〜真上 90°。ヨーは鉛直の軸まわりだけなので床は常に水平
 
-    // ── 操作：1 本指＝回転、2 本指＝拡大（つまむ）と平行移動、ホイール＝拡大、矢印キー＝回転、＋−＝拡大、[ ]＝区間を戻る・進む
+    // ── 操作：1 本指＝注視点まわりの回転、シフト+ドラッグ＝平行移動、2 本指＝拡大（つまむ中心へ）と平行移動、ホイール＝カーソルの下へ拡大、矢印キー＝回転、＋−＝拡大、[ ]＝区間を戻る・進む
     var pts = {}, drag = { active: false };
     function count() { return Object.keys(pts).length; }
     function pinchInfo() {
       var k = Object.keys(pts), a = pts[k[0]], b = pts[k[1]];
       return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2 };
     }
-    function zoomBy(m) { anim = null; cam.zoom = Math.min(ZMAX / fit.k, Math.max(ZMIN / fit.k, cam.zoom * m)); kick(); }
-    function pan(dx, dy) {
-      anim = null;
-      var D = camDist(), f = fovF(), s = D / f;
-      var cy_ = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
-      cam.tx -= (dx * cy_ + dy * sy / Math.max(0.3, Math.sin(cam.pitch))) * s;
-      cam.tz -= (-dx * sy + dy * cy_ / Math.max(0.3, Math.sin(cam.pitch))) * s;
-      var lim = R * 1.2; cam.tx = Math.max(-lim, Math.min(lim, cam.tx)); cam.tz = Math.max(-lim, Math.min(lim, cam.tz));
+    // ── 注視点（cam.tx/ty/tz）。回転はいつもこの点まわり。画面の上では「見える範囲の中心」PIV() に置く
+    function PIV() { return [W / 2 + (PAD.l - PAD.r) / 2, H / 2 + (PAD.t - PAD.b) / 2]; }
+    // 画面の点 (sx, sy) の下にある、高さ h の水平面の上の点（proj の逆）。面と交わらなければ null
+    function unproject(sx, sy, h) {
+      var D = camDist(), f = fovF(), u = (sx - W / 2 - fit.ox) / f, v = -(sy - H / 2 - fit.oy) / f;
+      var cy_ = Math.cos(cam.yaw), sy_ = Math.sin(cam.yaw), cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+      var den = v * cp + sp; if (den < 1e-4) return null;
+      var t = (h - cam.ty + D * sp) / den; if (t < 1) return null;
+      var x1 = u * t, y2 = v * t, z2 = t - D, z1 = -y2 * sp + z2 * cp;
+      return [x1 * cy_ + z1 * sy_ + cam.tx, h, -x1 * sy_ + z1 * cy_ + cam.tz];
     }
+    function clampT() { var lim = R * 1.2; cam.tx = Math.max(-lim, Math.min(lim, cam.tx)); cam.tz = Math.max(-lim, Math.min(lim, cam.tz)); }
+    // 見た目を変えずに、画面の中心 PIV() に見えている点を注視点にし直す（区間送り・自動フィットのずれ fit.ox/oy を畳む）
+    function rebase() {
+      anim = null;
+      var c = PIV(), q = unproject(c[0], c[1], cam.ty); if (!q) return;
+      cam.tx = q[0]; cam.tz = q[2]; fit.ox = c[0] - W / 2; fit.oy = c[1] - H / 2;
+    }
+    function floorH() { return focus && L[focus] ? zOf(focus, 0) : cam.ty; }   // 拡大の基準の床：見ている階、なければ注視点の高さ
+    // (sx, sy) の下の点を動かさずに拡大。位置がなければ画面の中心で
+    function zoomBy(m, sx, sy) {
+      rebase();
+      if (sx == null) { var c = PIV(); sx = c[0]; sy = c[1]; }
+      var h = floorH(), a = unproject(sx, sy, h);
+      cam.zoom = Math.min(ZMAX / fit.k, Math.max(ZMIN / fit.k, cam.zoom * m));
+      var b = a && unproject(sx, sy, h);
+      if (a && b) { cam.tx += a[0] - b[0]; cam.tz += a[2] - b[2]; clampT(); }
+      kick();
+    }
+    // 平行移動：(dx, dy) px だけ、指の下の床ごと注視点を動かす
+    function pan(dx, dy) {
+      rebase();
+      var c = PIV(), a = unproject(c[0], c[1], cam.ty), b = unproject(c[0] + dx, c[1] + dy, cam.ty);
+      if (a && b) { cam.tx -= b[0] - a[0]; cam.tz -= b[2] - a[2]; clampT(); }
+      kick();
+    }
+    function rotate(dyaw, dpitch) { if (anim) rebase(); cam.yaw += dyaw; cam.pitch = clampP(cam.pitch + dpitch); }
+    function local(e) { var r = canvas.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
     canvas.addEventListener("pointerdown", function (e) {
       canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId);
       pts[e.pointerId] = { x: e.clientX, y: e.clientY };
-      drag = { active: true, pinch: count() === 2 ? pinchInfo() : null, t: performance.now() };
-      vel.yaw = vel.pitch = 0;
+      drag = { active: true, pinch: count() === 2 ? pinchInfo() : null, t: performance.now(), shift: !!e.shiftKey };
+      vel.yaw = vel.pitch = 0; if (!anim) rebase();
     });
     canvas.addEventListener("pointermove", function (e) {
       var q = pts[e.pointerId]; if (!q) return;
@@ -727,12 +756,15 @@
       q.x = e.clientX; q.y = e.clientY;
       if (count() >= 2 && drag.pinch) {
         var pi = pinchInfo();
-        zoomBy(pi.d / Math.max(1, drag.pinch.d));
+        var r = canvas.getBoundingClientRect();
+        zoomBy(pi.d / Math.max(1, drag.pinch.d), drag.pinch.mx - r.left, drag.pinch.my - r.top);   // つまむ中心の下の点を動かさない
         pan(pi.mx - drag.pinch.mx, pi.my - drag.pinch.my);
         drag.pinch = pi;
+      } else if (count() === 1 && (drag.shift || e.shiftKey)) {
+        pan(dx, dy); vel.yaw = vel.pitch = 0;
       } else if (count() === 1) {
         var ky = -dx * 0.0065, kp = dy * 0.005;
-        cam.yaw += ky; cam.pitch = clampP(cam.pitch + kp);
+        rotate(ky, kp);
         var now = performance.now(), dtm = Math.max(8, now - drag.t); drag.t = now;
         vel.yaw = ky * 16 / dtm; vel.pitch = kp * 16 / dtm;
       }
@@ -746,11 +778,12 @@
     }
     canvas.addEventListener("pointerup", up);
     canvas.addEventListener("pointercancel", up);
-    canvas.addEventListener("wheel", function (e) { e.preventDefault(); zoomBy(Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+    canvas.addEventListener("wheel", function (e) { e.preventDefault(); var q = local(e); zoomBy(Math.exp(-e.deltaY * 0.0015), q[0], q[1]); }, { passive: false });
     canvas.addEventListener("keydown", function (e) {
       var k = e.key, used = true;
-      if (k === "ArrowLeft") cam.yaw += 0.12; else if (k === "ArrowRight") cam.yaw -= 0.12;
-      else if (k === "ArrowUp") cam.pitch = clampP(cam.pitch + 0.08); else if (k === "ArrowDown") cam.pitch = clampP(cam.pitch - 0.08);
+      if (k === "ArrowLeft" || k === "ArrowRight" || k === "ArrowUp" || k === "ArrowDown") rebase();
+      if (k === "ArrowLeft") rotate(0.12, 0); else if (k === "ArrowRight") rotate(-0.12, 0);
+      else if (k === "ArrowUp") rotate(0, 0.08); else if (k === "ArrowDown") rotate(0, -0.08);
       else if (k === "+" || k === "=") zoomBy(1.15); else if (k === "-" || k === "_") zoomBy(1 / 1.15);
       else if (k === "]") api.stepSection(1); else if (k === "[") api.stepSection(-1);
       else used = false;
@@ -794,6 +827,12 @@
       _setCam: function (yaw, pitch) { cam.yaw = yaw; cam.pitch = clampP(pitch); vel.yaw = vel.pitch = 0; anim = null; if (route) fitRoute(true); else fitView(); kick(); },
       _project: function (x, y, level, dz) { return proj(P(x, y, level, dz), camDist(), fovF()); },
       _pxPerM: function () { return fovF() / camDist(); },
+      _pivot: function () { return { t: [cam.tx, cam.ty, cam.tz], screen: proj([cam.tx, cam.ty, cam.tz], camDist(), fovF()), center: PIV() }; },
+      _unproject: function (sx, sy, h) { return unproject(sx, sy, h == null ? floorH() : h); },
+      _projW: function (p) { return proj(p, camDist(), fovF()); },
+      _rotate: function (dy, dp) { rebase(); rotate(dy, dp); kick(); },
+      _zoomAt: function (m, sx, sy) { zoomBy(m, sx, sy); },
+      _pan: function (dx, dy) { pan(dx, dy); },
       _zoomLimits: function () { return { min: ZMIN, max: ZMAX }; },
       setHidden: function (kind, hide) { hidden[kind] = !!hide; kick(); },
       hidden: function () { return Object.assign({}, hidden); },
