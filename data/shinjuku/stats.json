@@ -13,21 +13,21 @@
  },
  "tmg_networked_by_kind": {
   "walk": 1821,
-  "escalator": 175,
-  "elevator": 91,
-  "stairs": 314,
+  "escalator": 183,
+  "elevator": 94,
+  "stairs": 319,
   "gate": 39,
   "movingwalk": 1,
-  "toilet": 34,
+  "toilet": 38,
   "platform": 14,
   "step": 2,
   "ramp": 15
  },
  "edges_by_kind": {
-  "walk": 2520,
-  "escalator": 83,
-  "stairs": 136,
-  "elevator": 40,
+  "walk": 2531,
+  "escalator": 84,
+  "stairs": 139,
+  "elevator": 42,
   "vertical": 1
  },
  "exits": 150,
@@ -183,6 +183,74 @@
   "F102": 2,
   "F214": 2
  },
+ "crosscheck": {
+  "elevator": {
+   "一致": 49,
+   "種類の食い違い": 1,
+   "位置の食い違い": 1,
+   "階の食い違い": 5,
+   "東京都のみ": 23,
+   "一致（階は別）": 14
+  },
+  "escalator": {
+   "一致": 73,
+   "種類の食い違い": 4,
+   "位置の食い違い": 2,
+   "階の食い違い": 5,
+   "一致（階は別）": 42,
+   "東京都のみ": 142
+  },
+  "stairs": {
+   "一致": 191,
+   "位置の食い違い": 15,
+   "国交省のみ": 4,
+   "階の食い違い": 43,
+   "東京都のみ": 144,
+   "一致（階は別）": 61
+  },
+  "toilet": {
+   "国交省のみ": 4,
+   "一致": 21,
+   "種類の食い違い": 14,
+   "階の食い違い": 7,
+   "東京都のみ": 23,
+   "一致（階は別）": 7
+  },
+  "gate": {
+   "一致": 10,
+   "種類の食い違い": 1,
+   "国交省のみ": 1,
+   "位置の食い違い": 1,
+   "東京都のみ": 26
+  },
+  "*": {
+   "東京都で一致した多角形": 395
+  }
+ },
+ "network_fixes": {
+  "self_loop_dropped": 6,
+  "same_level_stair_edges": 10,
+  "elevator_split_edges": 2,
+  "stairs_split_edges": 9,
+  "escalator_split_edges": 19,
+  "split_end_unlinked": 23,
+  "split_end_links": 7,
+  "split_rolled_back_edges": 20,
+  "component_bridges": 2,
+  "toilet_unlinked": 13,
+  "toilet_links": 4
+ },
+ "components_after": {
+  "sizes": [
+   2585,
+   61,
+   4,
+   2
+  ],
+  "platforms_with_access": 10,
+  "platforms_with_accessGuess": 5,
+  "toilets_linked": 38
+ },
  "mlit_nw_links": 2549,
  "mlit_nw_route_type": {
   "1": 2201,
@@ -190,17 +258,5 @@
   "5": 74,
   "4": 79
  },
- "mlit_nw_nodes": 1985,
- "osm": {
-  "elements": 5570,
-  "toilets": 34,
-  "steps": 234,
-  "escalator(conveying)": 148,
-  "elevator": 38,
-  "subway_entrance": 71,
-  "entrance=*": 72,
-  "railway=platform": 26,
-  "indoor=*": 2537,
-  "timestamp": "2026-10-19T07:13:56Z"
- }
+ "mlit_nw_nodes": 1985
 }
