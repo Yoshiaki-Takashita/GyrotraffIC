@@ -8,6 +8,7 @@ import type { Router } from "../raptor.js";
 import type { Journey, Leg } from "../journey.js";
 import type { Mode } from "../modes.js";
 import { isoToServiceTime } from "../time.js";
+import { firstTrain, lastTrain, type FirstLastResult } from "../first-last.js";
 import { weakest, type Confidence, type FeedSource } from "../provenance.js";
 
 export interface UiPlace {
@@ -22,8 +23,8 @@ export interface UiRouteQuery {
   from: string;
   to: string;
   /** 省略は "now" */
-  mode?: "now" | "depart" | "arrive";
-  /** ISO（時差つきでも無しでも可）。mode が depart / arrive のとき使う */
+  mode?: "now" | "depart" | "arrive" | "first" | "last";
+  /** ISO（時差つきでも無しでも可）。mode が depart / arrive のとき使う。first / last では日付（運行日）だけを使う（"2026-10-20" だけでも可） */
   time?: string;
 }
 
@@ -45,7 +46,9 @@ export interface UiRouteResult {
   searchMs: number;
   /** 見本データかどうか。中枢の出力なので false（データ源が合成なら feed.id で分かる） */
   sample: boolean;
-  provenance: { engine: "gyrotraffic-raptor"; feed: FeedSource; query: { date: string; time: number; mode: "now" | "depart" | "arrive" } };
+  provenance: { engine: "gyrotraffic-raptor"; feed: FeedSource; query: { date: string; time: number; mode: "now" | "depart" | "arrive" | "first" | "last" } };
+  /** first / last のとき：運行日の判定・運行日の始まりの来歴（確／推／不明）と注意 */
+  firstLast?: FirstLastResult["provenance"];
   /** 探索しなかった・できなかった理由（停留所が無い等）。あれば journeys は空 */
   error?: string;
 }
@@ -112,7 +115,8 @@ export function createCoreProvider(router: Router, opts: CoreProviderOptions): U
       const t0 = Date.now();
       let st: { date: string; time: number };
       try {
-        st = mode === "now" || !q.time ? isoToServiceTime(now().toISOString(), tz) : isoToServiceTime(q.time, tz);
+        const t = (mode === "first" || mode === "last") && q.time && /^\d{4}-\d{2}-\d{2}$/.test(q.time.trim()) ? q.time.trim() + "T12:00:00" : q.time;
+        st = mode === "now" || !t ? isoToServiceTime(now().toISOString(), tz) : isoToServiceTime(t, tz);
       } catch (e) {
         st = { date: "", time: 0 };
         return Promise.resolve(empty(`日時が読めない：${(e as Error).message}`));
@@ -122,7 +126,14 @@ export function createCoreProvider(router: Router, opts: CoreProviderOptions): U
         return { id: null, journeys: [], searchMs: 0, sample: false, provenance: { engine: "gyrotraffic-raptor", feed: opts.feed, query: { ...st, mode } }, error };
       }
       let js: Journey[];
+      let fl: FirstLastResult | undefined;
       try {
+        if (mode === "first" || mode === "last") {
+          const fq = { from: q.from, to: q.to, date: st.date, maxTransfers: opts.maxTransfers, modes: opts.modes };
+          fl = mode === "first" ? firstTrain(router, fq) : lastTrain(router, fq);
+          if (fl.status === "none") return Promise.resolve({ ...empty(`該当なし：${fl.reason}`), firstLast: fl.provenance });
+          js = fl.journeys;
+        } else
         js =
           mode === "arrive"
             ? router.arriveBy({ from: q.from, to: q.to, date: st.date, arriveBy: st.time, maxTransfers: opts.maxTransfers, modes: opts.modes })
@@ -137,6 +148,7 @@ export function createCoreProvider(router: Router, opts: CoreProviderOptions): U
         searchMs: Date.now() - t0,
         sample: false,
         provenance: base,
+        ...(fl ? { firstLast: fl.provenance } : {}),
       });
     },
     stopAccess() {

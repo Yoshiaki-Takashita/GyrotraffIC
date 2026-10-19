@@ -9,3 +9,4 @@ export * from "./time.js";
 export * from "./validation.js";
 export { type FareValue, combineFares, cheapestKnown, fareValueToEstimate } from "./fare.js";
 export * from "./provenance.js";
+export { firstTrain, lastTrain, serviceDayOnly, DEFAULT_SERVICE_DAY_START, type FirstLastQuery, type FirstLastResult } from "./first-last.js";

@@ -119,7 +119,7 @@
 
 ### 4.1 次にやること（2026-10-19 更新・`core-alignment.md` の差から）
 1. **実データの取り込み**：ODPT の登録（確認メール未着）を待つ間は、公開 GTFS-JP（CC BY）で feed_info.txt の版・ライセンスを読み、区間ごとの来歴（0-6）を付ける。ODPT が来たら都営（CC BY 4.0）から。祝日の展開と「特別ダイヤ未反映」の表示、frequencies.txt の展開も取り込み側で。
-2. **始発・終電の探索**：`first-last.md` の案（運行日の制限つきの前向き探索＝始発、逆向き RAPTOR＝終電）。逆向き RAPTOR は到着時刻指定の簡易版の置き換えも兼ねる。
+2. **始発・終電の探索**：実装済み（2026-10-19、`src/first-last.ts`・`first-last.md` 0 章）。残り：逆向き RAPTOR による到着時刻指定の簡易版の置き換え（今は併存）、祝日の展開、運行日の境界（03:00 は仮）の確認、画面側の対応（担当に依頼）。
 3. **運賃**：3 値の型（`FareValue`）と合成は済。次は運賃データ（GTFS Fares v2 など）から Leg ごとの値を作る FareCalculator と、Router からの受け渡し。「安い」案は Known だけで並べる。
 4. そのあと：徒歩の推移閉包（上限つき）、直通（block_id・transfers type 4/5）、pathways.txt。
 5. 画面との接続：`src/ui-adapter/` が static-provider と同じ形で中枢の出力を返す。画面側での切り替え（`GT_CONFIG.provider`）は画面の担当に依頼する。

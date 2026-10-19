@@ -39,8 +39,10 @@ const CARRY = -3;
 
 export class Router {
   readonly net: Network;
-  private profiles: Record<Mode, ModeProfile>;
-  private fare: FareCalculator;
+  /** @internal */
+  readonly profiles: Record<Mode, ModeProfile>;
+  /** @internal */
+  readonly fare: FareCalculator;
   /** 最後の探索で調べたパターンの数など（性能の計測用） */
   lastStats = { rounds: 0, patternsScanned: 0 };
 
@@ -50,7 +52,8 @@ export class Router {
     this.fare = opts.fare ?? new NoFareCalculator();
   }
 
-  private resolve(x: string | string[]): number[] {
+  /** @internal */
+  resolve(x: string | string[]): number[] {
     const ids = Array.isArray(x) ? x : [x];
     const set = new Set<number>();
     for (const id of ids) for (const s of this.net.resolveStop(id)) set.add(s);
@@ -108,10 +111,14 @@ export class Router {
     return out;
   }
 
-  private run(sources: number[], targets: number[], date: string, t0: number, maxTransfers: number, modes?: Mode[]): Journey[] {
+  /**
+   * 前向き RAPTOR の本体。daysOverride を渡すと、その時刻表（例：運行日の便だけに絞ったもの）で探す（始発の探索 first-last.ts が使う）。
+   * @internal
+   */
+  run(sources: number[], targets: number[], date: string, t0: number, maxTransfers: number, modes?: Mode[], daysOverride?: PatternDay[]): Journey[] {
     const net = this.net;
     const S = net.feed.stops.length;
-    const days = net.day(date);
+    const days = daysOverride ?? net.day(date);
     const pats = net.patterns;
     const K = maxTransfers + 1;
     const allowed = modes ? new Set(modes) : null;
@@ -337,14 +344,16 @@ export class Router {
     return journeys;
   }
 
-  private stopRef(s: number): StopRef {
+  /** @internal */
+  stopRef(s: number): StopRef {
     const st = this.net.feed.stops[s];
     const r: StopRef = { stopId: st.id, name: st.name };
     if (st.parent) r.stationId = st.parent;
     return r;
   }
 
-  private fpInfo(a: number, b: number): { dur: number; src: WalkSource; confidence: Confidence } {
+  /** @internal */
+  fpInfo(a: number, b: number): { dur: number; src: WalkSource; confidence: Confidence } {
     const net = this.net;
     for (let e = net.fpStart[a]; e < net.fpStart[a + 1]; e++) {
       if (net.fpTo[e] === b) {

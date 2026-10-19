@@ -14,7 +14,7 @@
 | 5 | 徒歩グラフ（footpath） | 推移閉包か上限（CD 4.2-3）。出入口・構内通路（pathways）を別グラフで。地点からの接続は別部品（CD 4.5） | 停留所間のみ。閉包なし（transfers が閉じていないと見落とす）。pathways 未。地点からの探索なし | 確信度だけ付けた | 閉包（上限つき）の実装と差分試験。pathways.txt の読み込み。Street Access 部品 |
 | 6 | 乗換規則 | 同じ乗り場 0〜1 分・同じ駅は Pathway か距離＋固定加算・別駅は徒歩・便指定（type 4/5・block_id・ODPT 前後参照）は「座ったまま」（CD 4.5・5.1）。重複乗り場は疑わしきは別（5.2） | 同じ乗り場 0 秒（既定）・同じ駅 120 秒か距離（推）・transfers type 0〜3。type 4/5・block_id は未 | 変更なし | 直通の 3 通りの正規化（CD 5.1）。同じ駅の固定加算（CD は 2 分）と既定値の整合は決めていない（不明） |
 | 7 | 運賃の不明扱い | Leg ごと `Known/Partial/Unknown`、合成規則、「安い」は Known だけ、McRAPTOR では比較不能（CD 4.4） | `FareEstimate | null` の差し込み口だけ | **済**：`FareValue`（3 値）・`combineFares`・`cheapestKnown`・`fareValueToEstimate`（Unknown→null、Partial→画面で「＋」）。試験あり | 実際の運賃データ（GTFS Fares v2 等）。Router に Leg ごとの運賃を流す口。画面の「安い順」は今 null を Infinity として並べる（ui 側。触っていない） |
-| 8 | 到着時刻指定 | 逆向き RAPTOR（CD 4.3） | 二分探索の簡易版 | 変更なし | `docs/first-last.md` に始発・終電と合わせた案 |
+| 8 | 到着時刻指定 | 逆向き RAPTOR（CD 4.3） | 二分探索の簡易版 | 終電用に逆向き RAPTOR を実装（`src/first-last.ts`）。到着時刻指定は簡易版と併存 | `docs/first-last.md` 0 章 |
 | 9 | 飛行機の余裕 | 乗る前・降りた後、空港ごと・国内/国際・荷物（CD 7.2：国内 40/55 分） | 乗る前だけ・既定 30 分（推） | 変更なし | 既定値を CD 7.2 に合わせるか（数値の変更は試験の期待値も変わるので別作業） |
 | 10 | 悪いデータの隔離と記録 | 隔離・理由の記録（CD 8） | 除外と警告の文字列のみ | 変更なし | `data-pipeline.md` 4 章と合わせて |
 | 11 | 境界（Snapshot・Router・Street Access・Enricher） | CD 11 | Network ≒ Snapshot、Router あり。Enricher なし | **一部**：`src/ui-adapter/` が Enricher の最小版（経路ごとの来歴の要約） | Street Access |
