@@ -1,0 +1,143 @@
+{
+  "format": "gyrotraffic-route-v0",
+  "_synthetic": "架空の合成路線網（駅名に（架空）の印）。実在の駅・路線ではない。gyrotraffic route --json の実出力に、UI 用の封筒（format・id・query）を足したもの。",
+  "id": "hokumidai-kaihin",
+  "generatedBy": "gyrotraffic route --json (commit 7ec5706)",
+  "query": {
+    "from": "S_HOKU",
+    "to": "BUS_KAI",
+    "depart": "2026-10-20T07:55:00+09:00"
+  },
+  "journeys": [
+    {
+      "serviceDate": "20261020",
+      "departure": 29100,
+      "arrival": 32280,
+      "departureIso": "2026-10-20T08:05:00",
+      "arrivalIso": "2026-10-20T08:58:00",
+      "transfers": 0,
+      "legs": [
+        {
+          "type": "transit",
+          "mode": "bus",
+          "routeId": "R3",
+          "routeName": "北見台循環（架空）",
+          "tripId": "B3_1",
+          "headsign": "海浜公園",
+          "from": {
+            "stopId": "HOKU1",
+            "name": "北見台（架空） 1番線",
+            "stationId": "S_HOKU"
+          },
+          "to": {
+            "stopId": "BUS_KAI",
+            "name": "海浜公園（架空）"
+          },
+          "departure": 29100,
+          "arrival": 32280,
+          "departureIso": "2026-10-20T08:05:00",
+          "arrivalIso": "2026-10-20T08:58:00",
+          "intermediateStops": 0
+        }
+      ],
+      "fare": {
+        "amount": 230,
+        "currency": "JPY",
+        "kind": "estimate",
+        "unknownLegs": [],
+        "note": "架空の運賃（UI 確認用）"
+      }
+    },
+    {
+      "serviceDate": "20261020",
+      "departure": 28800,
+      "arrival": 31500,
+      "departureIso": "2026-10-20T08:00:00",
+      "arrivalIso": "2026-10-20T08:45:00",
+      "transfers": 2,
+      "legs": [
+        {
+          "type": "transit",
+          "mode": "rail",
+          "routeId": "R1",
+          "routeName": "北見線（架空）",
+          "tripId": "R1_80",
+          "headsign": "中央橋",
+          "from": {
+            "stopId": "HOKU1",
+            "name": "北見台（架空） 1番線",
+            "stationId": "S_HOKU"
+          },
+          "to": {
+            "stopId": "CHUO_M",
+            "name": "中央橋（架空） 環線ホーム",
+            "stationId": "S_CHUO"
+          },
+          "departure": 28800,
+          "arrival": 29520,
+          "departureIso": "2026-10-20T08:00:00",
+          "arrivalIso": "2026-10-20T08:12:00",
+          "intermediateStops": 0
+        },
+        {
+          "type": "transit",
+          "mode": "subway",
+          "routeId": "M1",
+          "routeName": "環線（架空）",
+          "tripId": "M1_80",
+          "headsign": "南浜",
+          "from": {
+            "stopId": "CHUO_M",
+            "name": "中央橋（架空） 環線ホーム",
+            "stationId": "S_CHUO"
+          },
+          "to": {
+            "stopId": "MINA",
+            "name": "南浜（架空）"
+          },
+          "departure": 29760,
+          "arrival": 30240,
+          "departureIso": "2026-10-20T08:16:00",
+          "arrivalIso": "2026-10-20T08:24:00",
+          "intermediateStops": 0
+        },
+        {
+          "type": "walk",
+          "from": {
+            "stopId": "MINA",
+            "name": "南浜（架空）"
+          },
+          "to": {
+            "stopId": "BUS_MINA",
+            "name": "南浜駅前（架空）バス停"
+          },
+          "duration": 240,
+          "source": "transfer"
+        },
+        {
+          "type": "transit",
+          "mode": "bus",
+          "routeId": "B1",
+          "routeName": "浜05系統（架空）",
+          "tripId": "B1_80",
+          "headsign": "海浜公園",
+          "from": {
+            "stopId": "BUS_MINA",
+            "name": "南浜駅前（架空）バス停"
+          },
+          "to": {
+            "stopId": "BUS_KAI",
+            "name": "海浜公園（架空）"
+          },
+          "departure": 30600,
+          "arrival": 31500,
+          "departureIso": "2026-10-20T08:30:00",
+          "arrivalIso": "2026-10-20T08:45:00",
+          "intermediateStops": 0
+        }
+      ],
+      "fare": null
+    }
+  ],
+  "searchMs": 29
+}
