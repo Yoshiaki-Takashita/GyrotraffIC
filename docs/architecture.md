@@ -1,5 +1,7 @@
 # 全世界交通インフラ統合アプリ　中枢システム設計（第 1 版・2026-10-18）
 
+> **【レビュー注記・2026-10-19】** 本書は第 1 版のまま残す。批判的レビューと検証結果は `docs/review-architecture.md`、改訂後の設計は `docs/core-design.md`・`docs/data-pipeline.md`・`docs/platform-precision.md`・`docs/accounts-privacy.md`・`docs/roadmap.md` にある。主な変更点：経路エンジンは自作 RAPTOR（`decisions.md`）、飛行機は同じエンジンに「余裕つきの便」として入れる、段階の順番は 首都圏の仕上げ → 飛行機 → アカウント → 全国、東京メトロは CC BY ではなく基本ライセンス、JR 東日本と大手私鉄 7 社はチャレンジ限定のみ、国内線の時刻表は ODPT にある。
+
 > 記号：**推**＝推測、**不明**＝分かっていない、**調査待ち**＝並行調査（`research-japan-data.md`・`research-maps.md`）の結果で直す所。
 > 作成時点で 2 つの調査文書はまだ無い。依存箇所は選択肢と推奨だけ書いてある。
 

@@ -38,6 +38,13 @@ node dist/src/cli.js compare ours.json otp.json --tolerance 300
 - `docs/research-japan-data.md`：日本の交通データの入手先とライセンス
 - `docs/research-maps.md`：地図の連携の機能・料金・規約
 - `validation/`：照合（OpenTripPlanner との比較）用の入力の例
+- 【2026-10-19 追加・中枢システムの設計一式】
+  - `docs/review-architecture.md`：`architecture.md` と 2 つの調査文書の批判的レビューと検証結果
+  - `docs/core-design.md`：経路探索の中核の設計（RAPTOR・飛行機の結合・運賃不明の扱い・直通・検証計画）
+  - `docs/data-pipeline.md`：データの取り込み・版・更新・ライセンスの守り・来歴
+  - `docs/platform-precision.md`：出入口・ホーム・バス停の向きと位置の確信度
+  - `docs/accounts-privacy.md`：アカウント・端末内履歴・削除と書き出し・脅威モデル・弁護士への質問
+  - `docs/roadmap.md`：段階計画・最小の一歩・危険・所有者の決定事項
 
 ## 構成
 - `src/gtfs/`：CSV のストリーム読み込み・GTFS の読み込み
