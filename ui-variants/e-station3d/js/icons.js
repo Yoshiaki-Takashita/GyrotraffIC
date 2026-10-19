@@ -53,6 +53,7 @@
     exit: '<path d="M14 4.5h5.5v15H14M10 8l-4 4 4 4M6 12h9"/>',
     layers: '<path d="M12 4l8.5 4.5L12 13 3.5 8.5z"/><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16L12 20.5l8.5-4.5"/>',
     platform: '<path d="M3 16h18M3 20h18M6 16V9h12v7"/>',
+    toilet: '<circle cx="8" cy="5" r="1.8"/><circle cx="16" cy="5" r="1.8"/><path d="M8 8.5v12M5.5 9.5h5v6M16 8.5l-3 7.5h6zM14.5 16v4.5M17.5 16v4.5"/>',
     doc: '<path d="M6.5 3.5h7.5l4 4v13h-11.5zM14 3.5v4h4M9.5 12h5M9.5 15.5h5"/>'
   };
   GT.icon = function (name, cls, label) {

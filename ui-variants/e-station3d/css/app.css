@@ -474,3 +474,22 @@ button, .primary, .secondary, .danger { font: inherit; }
 .st-unk { display: inline-flex; align-items: center; gap: 4px; color: var(--unk, var(--muted)); }
 .st-unk .ic { width: 15px; height: 15px; }
 .fine .ic { width: 14px; height: 14px; vertical-align: -2px; }
+/* 駅の切り替え・新宿（下書き）の表示の切り替え */
+.sj-which { margin: 0 0 var(--s2); }
+.sj-loading { position: absolute; left: 0; right: 0; top: 45%; text-align: center; color: rgba(231,233,228,.8); font-size: var(--fs-s); }
+.sj-bar { display: flex; flex-wrap: wrap; gap: var(--s1); margin-top: var(--s2); }
+.sj-bar .st-tool { color: var(--ink); background: none; border-color: var(--line); }
+.sj-bar .st-tool[aria-pressed="false"] { opacity: .45; box-shadow: none; }
+.sj-bar .st-tool[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.sj-levels { display: flex; gap: var(--s1); overflow-x: auto; margin-top: var(--s2); padding-bottom: 2px; scrollbar-width: none; }
+.sj-levels::-webkit-scrollbar { display: none; }
+.sj-lv { flex: none; min-width: 44px; min-height: 44px; padding: 0 var(--s2); border: 1px solid var(--line); border-radius: var(--r-m); background: none; color: var(--ink); font: inherit; font-family: var(--font-num); font-size: var(--fs-s); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.sj-lv[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); box-shadow: var(--glow); }
+.sj-cd { display: flex; align-items: center; gap: 4px; margin: var(--s1) 0; }
+.sj-cd .ic { width: 16px; height: 16px; }
+.sj-guess { display: inline-flex; vertical-align: -3px; margin-right: 4px; color: var(--warn); }
+.sj-guess .ic { width: 15px; height: 15px; }
+.st-step.is-guess > .ic { color: var(--warn); }
+.sj-counts { display: flex; flex-wrap: wrap; gap: var(--s3); }
+.sj-count { display: inline-flex; align-items: center; gap: 3px; font-family: var(--font-num); }
+.sj-count .ic { width: 15px; height: 15px; }
