@@ -1,0 +1,12 @@
+{
+  "format": "gyrotraffic-places-v0",
+  "_synthetic": "架空の場所。合成の路線網（gtfs-synthetic/）の駅。座標も架空。",
+  "places": [
+    { "id": "S_HOKU", "name": "北見台（架空）", "kind": "station", "lat": 35.70, "lon": 139.70 },
+    { "id": "S_CHUO", "name": "中央橋（架空）", "kind": "station", "lat": 35.68, "lon": 139.72 },
+    { "id": "MINA", "name": "南浜（架空）", "kind": "station", "lat": 35.65, "lon": 139.74 },
+    { "id": "BUS_KAI", "name": "海浜公園（架空）", "kind": "bus_stop", "lat": 35.63, "lon": 139.76 },
+    { "id": "AIR_A", "name": "第一空港（架空）", "kind": "airport", "lat": 35.55, "lon": 139.78 },
+    { "id": "NISHI", "name": "西島中央（架空）", "kind": "bus_stop", "lat": 34.05, "lon": 135.05 }
+  ]
+}

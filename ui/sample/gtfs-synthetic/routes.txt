@@ -1,0 +1,8 @@
+route_id,agency_id,route_short_name,route_long_name,route_type
+R1,A,北見線（架空）,,2
+M1,A,環線（架空）,,1
+K1,A,空港線（架空）,,2
+B1,A,浜05系統（架空）,,3
+F1,A,GY101便（架空）,,1100
+B2,A,西島連絡バス（架空）,,3
+R3,A,北見台循環（架空）,,3
