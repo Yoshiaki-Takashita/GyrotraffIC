@@ -264,6 +264,11 @@ await p.waitForTimeout(100);
   await p.waitForTimeout(150);
   ok((await p.evaluate(() => GT.station.view.focus())) === "1F", C, "1F が強調されない");
   await p.screenshot({ path: join(out, "shinjuku-1f.png") });
+  {
+    const R = await p.evaluate(() => ({ tags: GT.station.view._labels().map((l) => ({ t: l.t, box: l.box })), btns: [...document.querySelectorAll(".sj-lv[data-lv]")].map((b) => b.dataset.lv).filter(Boolean) }));
+    ok(R.tags.length > 0 && R.tags.every((l) => R.btns.includes(l.t) && /^B?\d+F$/.test(l.t)), C, "階のタグがボタンの文字と一致しない " + JSON.stringify(R.tags.map((l) => l.t)) + JSON.stringify(R.btns));
+    for (let i = 0; i < R.tags.length; i++) for (let j = i + 1; j < R.tags.length; j++) { const a = R.tags[i].box, b = R.tags[j].box; ok(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1], C, "階のタグが重なる " + R.tags[i].t + "/" + R.tags[j].t); }
+  }
   await measure("1F 強調");
   // ホーム（JR）の辺りを拡大
   const ctr = await p.evaluate(() => {

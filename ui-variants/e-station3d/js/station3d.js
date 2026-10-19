@@ -13,7 +13,7 @@
 //   ・床は水平のまま。斜めは階段・エスカレーターの 3D の枠線のモデルだけ（階段＝段と手すり、エスカレーター＝ステップと手すりの斜面、
 //     エレベーター＝縦の箱の枠）。各階の床をこのモデルがつなぐ。見本の駅も同じ描き方。
 //   ・トイレ・エレベーター・出口・改札は、ルートの近くの分だけ（距離 GLYPH_R 以内・近い順に上限・近いものは 1 つにまとめて件数）、
-//     その場所から画面の下の列へ引き出し線を出して記号を並べる（重ならない）。
+//     その場所から画面の下の列へ引き出し線を出して記号を並べる（重ならない）。階の名前は床の角の小さなタグだけ。
 //   ・カメラはルートに合わせて自動で合わせ、区間ごとに寄って見られる（拡大の上限を大きくした）。
 (function (GT) {
   "use strict";
@@ -606,9 +606,9 @@
           strokeBuckets(col, 1, 0.95);
         } else strokeBuckets(col, 1.1, 1.15);   // 紙の面：にじみなし。濃淡（不透明度）だけで強弱を出す
       });
-      // 階の名前：床の板の、画面でいちばん左の角から外側へ引き出し線を出し、左の列に階の高い順で並べる（重ならないよう 16px 以上離す）
-      ctx.font = "11px ui-monospace, Menlo, monospace";
-      ctx.textBaseline = "middle";
+      // 階の名前：床の板の、画面でいちばん左の角のすぐ内側に小さな「1F」「B2F」のタグだけ（引き出し線なし・一定の大きさ・重なれば縦にずらす）
+      ctx.font = "10px ui-monospace, Menlo, monospace";
+      ctx.textBaseline = "middle"; ctx.textAlign = "left";
       var labs = [];
       st.levels.forEach(function (l) {
         var sb = slabs[l.id]; if (!sb) return;
@@ -617,25 +617,24 @@
         [[sb[0], sb[1]], [sb[2], sb[1]], [sb[2], sb[3]], [sb[0], sb[3]]].forEach(function (c) {
           var q = proj(P(c[0], c[1], l.id, 0), D, f); if (q && (!best || q[0] < best[0])) best = q;
         });
-        if (best) labs.push({ id: l.id, t: l.name, z: L[l.id].z, ax: best[0], ay: best[1], y: best[1], w: ctx.measureText(l.name).width });
+        if (best) var mm = /^(B?\d+)F?(?!\w)/i.exec(String(l.name).trim());
+        labs.push({ id: l.id, t: mm ? mm[1].toUpperCase() + "F" : l.name, z: L[l.id].z, x: best[0] + 3, y: best[1], w: 0 });
       });
       labs.sort(function (a, b) { return b.z - a.z; });
-      for (var it = 0; it < 4; it++) {
-        for (var li = 1; li < labs.length; li++) if (labs[li].y < labs[li - 1].y + 16) labs[li].y = labs[li - 1].y + 16;
-        if (labs.length && labs[labs.length - 1].y > H - 10) labs[labs.length - 1].y = H - 10;
-        for (li = labs.length - 2; li >= 0; li--) if (labs[li].y > labs[li + 1].y - 16) labs[li].y = labs[li + 1].y - 16;
-        if (labs.length && labs[0].y < 10) labs[0].y = 10;
+      labs.forEach(function (b) { b.w = ctx.measureText(b.t).width + 6; b.x = Math.max(2, Math.min(W - b.w - 2, b.x)); b.y = Math.max(8, Math.min(H - 8, b.y)); });
+      for (var it = 0; it < 6; it++) {
+        for (var li = 1; li < labs.length; li++) {
+          var pv = labs[li - 1], cu = labs[li];
+          if (Math.abs(cu.x - pv.x) < Math.max(cu.w, pv.w) && cu.y < pv.y + 14) cu.y = pv.y + 14;
+        }
+        labs.forEach(function (b) { if (b.y > H - 8) b.y = H - 8; });
       }
       labs.forEach(function (b) {
-        var tx = 8, ex = tx + b.w + 4;
-        var ax = Math.max(-4000, Math.min(W + 4000, b.ax)), ay = Math.max(-4000, Math.min(H + 4000, b.ay));
-        ctx.strokeStyle = "rgba(" + TH.ink + (TH.dark ? ",.35)" : ",.45)"); ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(ex, b.y); ctx.lineTo(Math.max(ex + 6, ax - 3), b.y); ctx.lineTo(ax, ay); ctx.stroke();
-        // 文字のコントラスト（AA 4.5:1 目安）：薄表示でも dark .55／light .62 を下回らない
-        ctx.fillStyle = "rgba(" + TH.ink + "," + (focus && b.id !== focus ? (TH.dark ? ".55" : ".62") : (TH.dark ? ".85" : ".9")) + ")"; ctx.textAlign = "left";
-        ctx.save(); ctx.globalAlpha = 0.85; ctx.fillStyle = TH.bg; ctx.fillRect(tx - 3, b.y - 8, b.w + 6, 16); ctx.restore();   // 線が文字に重ならないよう面の色の下地
-        ctx.fillText(b.t, tx, b.y);
-        b.box = [tx, b.y - 7, ex, b.y + 7];
+        ctx.save(); ctx.globalAlpha = 0.8; ctx.fillStyle = TH.bg; ctx.fillRect(b.x, b.y - 7, b.w, 14); ctx.restore();   // 面の色の薄い下地（線と文字が重ならない）
+        // 強調された階だけ濃く、ほかは薄く（文字のコントラスト AA 4.5:1 目安：薄表示でも dark .6／light .65 を下回らない）
+        ctx.fillStyle = "rgba(" + TH.ink + "," + (focus && b.id !== focus ? (TH.dark ? ".6" : ".65") : (TH.dark ? ".95" : ".95")) + ")";
+        ctx.fillText(b.t, b.x + 3, b.y);
+        b.box = [b.x, b.y - 7, b.x + b.w, b.y + 7];
       });
       lastLabels = labs;
       // 経路（いまの区間を強く、ほかは控えめに）

@@ -273,6 +273,7 @@ for (const theme of ["dark", "light"]) {
       ok(a[2] <= b[0] || b[2] <= a[0] || a[3] <= b[1] || b[3] <= a[1], C, `${name}：階の名前が重なる ${L[i].t} / ${L[j].t}`);
     }
     ok(L.length === 3, C, `${name}：階の名前が 3 つない`);
+    for (const l of L) ok(/^B?\d+F$/.test(l.t), C, `${name}：階のタグが「数字とF」でない ${l.t}`);
     await p.screenshot({ path: join(out, `station-view-${name}.png`) });
   }
   // 見本の駅も、階段・エスカレーター・エレベーターは 3D のモデル（段・ステップ・手すり・縦の箱）
