@@ -1,0 +1,136 @@
+{
+  "format": "gyrotraffic-route-v0",
+  "_synthetic": "架空の合成路線網（駅名に（架空）の印）。実在の駅・路線ではない。gyrotraffic route --json の実出力に、UI 用の封筒（format・id・query）を足したもの。",
+  "id": "hokumidai-nishijima",
+  "generatedBy": "gyrotraffic route --json (commit 7ec5706)",
+  "query": {
+    "from": "S_HOKU",
+    "to": "NISHI",
+    "depart": "2026-10-20T07:30:00+09:00"
+  },
+  "journeys": [
+    {
+      "serviceDate": "20261020",
+      "departure": 27600,
+      "arrival": 43200,
+      "departureIso": "2026-10-20T07:40:00",
+      "arrivalIso": "2026-10-20T12:00:00",
+      "transfers": 3,
+      "legs": [
+        {
+          "type": "transit",
+          "mode": "rail",
+          "routeId": "R1",
+          "routeName": "北見線（架空）",
+          "tripId": "R1_740",
+          "headsign": "中央橋",
+          "from": {
+            "stopId": "HOKU1",
+            "name": "北見台（架空） 1番線",
+            "stationId": "S_HOKU"
+          },
+          "to": {
+            "stopId": "CHUO_M",
+            "name": "中央橋（架空） 環線ホーム",
+            "stationId": "S_CHUO"
+          },
+          "departure": 27600,
+          "arrival": 28320,
+          "departureIso": "2026-10-20T07:40:00",
+          "arrivalIso": "2026-10-20T07:52:00",
+          "intermediateStops": 0
+        },
+        {
+          "type": "walk",
+          "from": {
+            "stopId": "CHUO_M",
+            "name": "中央橋（架空） 環線ホーム",
+            "stationId": "S_CHUO"
+          },
+          "to": {
+            "stopId": "CHUO_K",
+            "name": "中央橋（架空） 空港線ホーム",
+            "stationId": "S_CHUO"
+          },
+          "duration": 180,
+          "source": "transfer"
+        },
+        {
+          "type": "transit",
+          "mode": "rail",
+          "routeId": "K1",
+          "routeName": "空港線（架空）",
+          "tripId": "K1_740",
+          "headsign": "第一空港",
+          "from": {
+            "stopId": "CHUO_K",
+            "name": "中央橋（架空） 空港線ホーム",
+            "stationId": "S_CHUO"
+          },
+          "to": {
+            "stopId": "AIR_A",
+            "name": "第一空港（架空）"
+          },
+          "departure": 28500,
+          "arrival": 29580,
+          "departureIso": "2026-10-20T07:55:00",
+          "arrivalIso": "2026-10-20T08:13:00",
+          "intermediateStops": 0
+        },
+        {
+          "type": "transit",
+          "mode": "air",
+          "routeId": "F1",
+          "routeName": "GY101便（架空）",
+          "tripId": "F1_1",
+          "headsign": "西島",
+          "from": {
+            "stopId": "AIR_A",
+            "name": "第一空港（架空）"
+          },
+          "to": {
+            "stopId": "AIR_B",
+            "name": "西島空港（架空）"
+          },
+          "departure": 34200,
+          "arrival": 39600,
+          "departureIso": "2026-10-20T09:30:00",
+          "arrivalIso": "2026-10-20T11:00:00",
+          "intermediateStops": 0
+        },
+        {
+          "type": "transit",
+          "mode": "bus",
+          "routeId": "B2",
+          "routeName": "西島連絡バス（架空）",
+          "tripId": "B2_1",
+          "headsign": "西島中央",
+          "from": {
+            "stopId": "AIR_B",
+            "name": "西島空港（架空）"
+          },
+          "to": {
+            "stopId": "NISHI",
+            "name": "西島中央（架空）"
+          },
+          "departure": 41400,
+          "arrival": 43200,
+          "departureIso": "2026-10-20T11:30:00",
+          "arrivalIso": "2026-10-20T12:00:00",
+          "intermediateStops": 0
+        }
+      ],
+      "fare": {
+        "amount": 15800,
+        "currency": "JPY",
+        "kind": "estimate",
+        "unknownLegs": [
+          0,
+          2
+        ],
+        "note": "飛行機の区間だけの目安（架空）"
+      }
+    }
+  ],
+  "searchMs": 17
+}
