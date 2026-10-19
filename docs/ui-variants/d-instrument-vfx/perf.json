@@ -1,0 +1,205 @@
+{
+ "reject": {
+  "ms": 1676,
+  "frames": 97,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.8,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "work": {
+   "med": 0,
+   "p99": 0.5,
+   "max": 0.5
+  }
+ },
+ "swap": {
+  "ms": 1248,
+  "frames": 72,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.5,
+   "max": 0.5
+  }
+ },
+ "segment": {
+  "ms": 849,
+  "frames": 48,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.2,
+   "max": 0.2
+  }
+ },
+ "idle_frames_1s": 0,
+ "press_search_to_results": {
+  "ms": 1974,
+  "frames": 115,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 33.4
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.5,
+   "max": 1
+  }
+ },
+ "carry_to_tab": {
+  "ms": 2133,
+  "frames": 126,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.5,
+   "max": 1.4
+  }
+ },
+ "results_to_detail_shared": {
+  "ms": 2129,
+  "frames": 122,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.8,
+   "max": 1.4
+  }
+ },
+ "sheet_dismiss": {
+  "ms": 243,
+  "frames": 0,
+  "gap": {
+   "med": 0,
+   "p95": 0,
+   "p99": 0,
+   "max": 0
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.1,
+   "max": 0.1
+  }
+ },
+ "hold_save": {
+  "ms": 1509,
+  "frames": 91,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.8,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 1.4,
+   "max": 1.4
+  }
+ },
+ "tab_switch": {
+  "ms": 858,
+  "frames": 52,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.7,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.3,
+   "max": 0.3
+  }
+ },
+ "reorder": {
+  "ms": 981,
+  "frames": 57,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.8,
+   "p99": 16.8,
+   "max": 16.8
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.3,
+   "max": 0.3
+  }
+ },
+ "back_interrupt": {
+  "ms": 984,
+  "frames": 55,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.7,
+   "p99": 16.7,
+   "max": 16.7
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.2,
+   "max": 0.2
+  }
+ },
+ "press_latency_ms": 8.9,
+ "q0": {
+  "glow": "none",
+  "particles": 0,
+  "maxLive": 6
+ },
+ "boot": {
+  "ms": 1736,
+  "frames": 96,
+  "gap": {
+   "med": 16.7,
+   "p95": 16.8,
+   "p99": 50,
+   "max": 50
+  },
+  "work": {
+   "med": 0.1,
+   "p99": 0.7,
+   "max": 0.7
+  }
+ },
+ "boot_splash_left": 0,
+ "reduced": {
+  "splash": 0,
+  "reject": {
+   "bad": true,
+   "tf": "",
+   "err": "出発地と目的地が同じです"
+  },
+  "swapInstant": [
+   "海浜公園（架空）",
+   true
+  ],
+  "ribbonLit": true,
+  "anyTransform": 0,
+  "busy": 1
+ }
+}
